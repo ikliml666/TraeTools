@@ -21,7 +21,7 @@ public partial class SettingsViewModel : ViewModelBase
     private bool _autoCheckinEnabled = true;
 
     [ObservableProperty]
-    private string _autoCheckinTime = "08:00";
+    private string _autoCheckinTime = "12:00";
 
     [ObservableProperty]
     private int _checkinIntervalSeconds = 5;

@@ -27,7 +27,7 @@ public class AppConfig
     public string? FeishuWebhook { get; set; }
     public string DeviceId { get; set; } = GenerateDeviceId();
     public bool AutoCheckinEnabled { get; set; } = true;
-    public string AutoCheckinTime { get; set; } = "08:00";
+    public string AutoCheckinTime { get; set; } = "12:00";
     /// <summary>多账号签到间隔（秒），每个账号签到完成后等待该时长再签到下一个；默认 5 秒。</summary>
     public int CheckinIntervalSeconds { get; set; } = 5;
     public DateTime? LastCheckinDate { get; set; }
