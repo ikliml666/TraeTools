@@ -35,7 +35,6 @@ BASE = "https://api.trae.cn"
 
 def _post(path, headers, body=""):
     """POST 请求。非 2xx 不抛 HTTPError，而是以 (status, body) 正常返回，便于上层判断原因。"""
-    import urllib.error
     req = urllib.request.Request(BASE + path, data=body.encode("utf-8"), headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -96,12 +95,19 @@ def get_status(token: str, device_id: str) -> dict:
 
 
 def resolve_gained_credits(body: dict):
-    """从 status 响应解析本次所得，口径对齐本地 CheckinEvaluator.ResolveGainedCredits：
+    """从 status 响应解析当日已得积分，口径对齐本地 CheckinEvaluator.ResolveGainedCredits：
     credits 是基础所得；extra_credits 是连签加成、仅会员到账，脚本不做会员判定故不计入。
-    code 非 0 或未签到则数值不可信，返回 None。"""
+    code 非 0 或未签到则数值不可信，返回 None。缺 credits 字段直接抛 KeyError——
+    接口结构变了就该暴露，而不是返回 0 让日志重现「恒为 0」的假象。"""
     if body.get("code") != 0 or not body.get("checked_in"):
         return None
-    return body.get("credits", 0)
+    return body["credits"]
+
+
+def is_checked_in_status(status: dict) -> bool:
+    """status 响应是否表示「今日已签到」。只判定状态，不依赖积分字段。"""
+    body = status["body"]
+    return status["http"] == 200 and body.get("code") == 0 and bool(body.get("checked_in"))
 
 
 def fetch_gained_credits(token: str, device_id: str):
@@ -177,19 +183,43 @@ def main():
         try:
             token = get_token(session)
             print("[%s] 已换取新 JWT，长度=%d" % (name, len(token)))
+            # 签前预检：已签过就不再 claim。claim 本身幂等，但预检能让日志给出
+            # 「今日已签到」而不是把旧签到误报成本次所得。
+            pre = get_status(token, device_id)
+            if is_checked_in_status(pre):
+                today = pre["body"].get("credits")
+                if today is None:
+                    print("[%s] 今日已签到，跳过 claim（积分字段缺失，数值未知）" % name)
+                else:
+                    print("[%s] 今日已签到，跳过 claim（今日积分 %g）" % (name, today))
+                ok_names.append(name + "（已签）")
+                continue
+            if pre["http"] != 200:
+                print("[%s] 签前状态查询返回 HTTP %s，继续执行 claim" % (name, pre["http"]))
             result = checkin(token, device_id)
             body = result["body"]
             code = body.get("code", -1)
-            # 9074「参与用户太多」= 设备号被风控标记；换全新设备号自动重试（最多 5 次）
+            # 9074「参与用户太多」= 设备号被风控标记；换全新设备号退避重试。
+            # 退避按 attempt²×3 秒递增（3s/12s），窗口内连续猛试只会持续命中风控。
             attempt = 1
-            while code == 9074 and attempt < 5:
+            while code == 9074 and attempt < 3:
+                wait = attempt * attempt * 3
                 device_id = random_device_id()
                 attempt += 1
-                print("[%s] 命中风控 9074，换新设备号重试（第 %d 次）" % (name, attempt))
-                time.sleep(random.uniform(0.8, 1.5))
+                print("[%s] 命中风控 9074，%.1f 秒后换新设备号重试（第 %d 次）" % (name, wait, attempt))
+                time.sleep(wait + random.uniform(0, 1.5))
                 result = checkin(token, device_id)
                 body = result["body"]
                 code = body.get("code", -1)
+            # 9095 = 该设备今日已签到（签发额度按设备计），等价于成功而非失败
+            if code == 9095:
+                gained, note = fetch_gained_credits(token, device_id)
+                if note:
+                    print("[%s] 设备今日已签到（9095），但%s" % (name, note))
+                else:
+                    print("[%s] 设备今日已签到（9095），今日积分 %g" % (name, gained))
+                ok_names.append(name + "（已签）")
+                continue
             checked = body.get("checked_in", False)
             ok = (result["http"] == 200) and (code == 0 or checked)
             if ok:

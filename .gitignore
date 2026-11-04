@@ -19,3 +19,8 @@ Thumbs.db
 
 # Publish output
 publish/
+publish_aot/
+TraeTools-win-x64.zip
+
+# Python
+__pycache__/
