@@ -27,6 +27,7 @@ import os
 import random
 import sys
 import time
+import urllib.error
 import urllib.request
 
 BASE = "https://api.trae.cn"
@@ -65,20 +66,57 @@ def get_token(session: str) -> str:
     return token
 
 
-def checkin(token: str, device_id: str) -> dict:
-    """执行每日签到（claim）。"""
-    headers = {
+def _auth_headers(token: str, device_id: str) -> dict:
+    return {
         "Authorization": "Cloud-IDE-JWT " + token,
         "X-User-Region": "cn",
         "x-device-id": device_id,
         "Content-Type": "application/json",
         "User-Agent": "TraeCheckin/1.0",
     }
-    status, text = _post("/trae/api/v2/ug/checkin_credits/claim", headers, "{}")
+
+
+def _post_json(path: str, token: str, device_id: str) -> dict:
+    """带 JWT 认证的 POST，返回 {"http": 状态码, "body": 解析后的 JSON}。"""
+    status, text = _post(path, _auth_headers(token, device_id), "{}")
     try:
         return {"http": status, "body": json.loads(text)}
     except json.JSONDecodeError:
         return {"http": status, "body": {"raw": text}}
+
+
+def checkin(token: str, device_id: str) -> dict:
+    """执行每日签到（claim）。响应只含 code/message，不含本次所得积分。"""
+    return _post_json("/trae/api/v2/ug/checkin_credits/claim", token, device_id)
+
+
+def get_status(token: str, device_id: str) -> dict:
+    """查询今日签到状态。单日奖励（credits）只能从该接口读到。"""
+    return _post_json("/trae/api/v2/ug/checkin_credits/status", token, device_id)
+
+
+def resolve_gained_credits(body: dict):
+    """从 status 响应解析本次所得，口径对齐本地 CheckinEvaluator.ResolveGainedCredits：
+    credits 是基础所得；extra_credits 是连签加成、仅会员到账，脚本不做会员判定故不计入。
+    code 非 0 或未签到则数值不可信，返回 None。"""
+    if body.get("code") != 0 or not body.get("checked_in"):
+        return None
+    return body.get("credits", 0)
+
+
+def fetch_gained_credits(token: str, device_id: str):
+    """claim 后补查 status 拿真实积分。返回 (积分或 None, 说明或 None)。
+    claim 响应不含积分字段，不看 status 就只能报 0——那正是旧版日志恒为 0 的原因。"""
+    try:
+        status = get_status(token, device_id)
+    except (urllib.error.URLError, OSError) as e:
+        return None, "status 查询失败，积分未知：%s" % e
+    if status["http"] != 200:
+        return None, "status 查询返回 HTTP %s，积分未知" % status["http"]
+    gained = resolve_gained_credits(status["body"])
+    if gained is None:
+        return None, "status 返回未签到或 code=%s，积分未知" % status["body"].get("code")
+    return gained, None
 
 
 def notify_feishu(webhook, text):
@@ -154,9 +192,13 @@ def main():
                 code = body.get("code", -1)
             checked = body.get("checked_in", False)
             ok = (result["http"] == 200) and (code == 0 or checked)
-            credits = body.get("credits", 0)
             if ok:
-                print("[%s] 签到成功，本次获得：%s 积分" % (name, credits))
+                # claim 响应里没有积分字段，补查一次 status 才是真实数值
+                gained, note = fetch_gained_credits(token, device_id)
+                if note:
+                    print("[%s] 签到成功，但%s" % (name, note))
+                else:
+                    print("[%s] 签到成功，本次获得：%g 积分" % (name, gained))
                 ok_names.append(name)
             else:
                 reason = body.get("message") or ("HTTP %s" % result["http"])
