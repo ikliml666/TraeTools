@@ -95,6 +95,7 @@ public partial class QoderViewModel : ViewModelBase
     /// <summary>重建账号列表（读存储，不动网络）。</summary>
     public void Reload()
     {
+        var keepId = SelectedAccount?.Id;
         Accounts.Clear();
         foreach (var acc in _store.Accounts)
         {
@@ -110,8 +111,43 @@ public partial class QoderViewModel : ViewModelBase
             return;
         }
         LoginState = $"已登录 {Accounts.Count} 个 Qoder 账号";
-        SelectedAccount = Accounts[0];
+        SelectedAccount = Accounts.FirstOrDefault(a => a.Id == keepId) ?? Accounts[0];
         RefreshSummaries();
+    }
+
+    /// <summary>
+    /// 进入页面时补拉还没取过的积分与套餐。只对缺数据的账号发请求，
+    /// 已有数据的账号不重复打上游——这个动作每进一次页面都会跑。
+    /// </summary>
+    public async Task LoadCreditsAsync()
+    {
+        var api = _api;
+        if (api == null || IsBusy) return;
+        var pending = _store.Accounts.Where(a => a.Remaining < 0 || string.IsNullOrEmpty(a.Plan)).ToList();
+        if (pending.Count == 0) return;
+
+        IsBusy = true;
+        try
+        {
+            foreach (var acc in pending)
+            {
+                if (!await EnsureTokenAsync(acc, api)) continue;
+                var quota = await api.FetchQuotaAsync(acc);
+                if (quota == null) continue;
+                acc.Remaining = quota.Remaining;
+                acc.Used = quota.Used;
+                acc.Total = quota.Total;
+                acc.IsExceeded = quota.IsExceeded;
+                var plan = await api.FetchPlanAsync(acc);
+                if (!string.IsNullOrEmpty(plan)) acc.Plan = plan;
+            }
+            _store.Save();
+            Reload();
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     partial void OnSelectedAccountChanged(QoderAccountRow? value) => RefreshSummaries();
@@ -256,21 +292,10 @@ public partial class QoderViewModel : ViewModelBase
                 StatusMessage = "令牌已失效且无法自动续期，请重新登录：" + (api.LastError ?? "没有可用的刷新凭证");
                 return;
             }
-            var quota = await api.FetchQuotaAsync(target);
-            if (quota != null)
-            {
-                target.Remaining = quota.Remaining;
-                target.Used = quota.Used;
-                target.Total = quota.Total;
-                target.IsExceeded = quota.IsExceeded;
-                StatusMessage = $"积分已刷新：剩余 {quota.Remaining:0.##}";
-            }
-            else
-            {
-                StatusMessage = api.LastError ?? "积分查询失败";
-            }
-            var plan = await api.FetchPlanAsync(target);
-            if (!string.IsNullOrEmpty(plan)) target.Plan = plan;
+            await RefreshQuotaAsync(target, api);
+            StatusMessage = target.Remaining < 0
+                ? api.LastError ?? "积分查询失败"
+                : $"积分已刷新：剩余 {target.Remaining:0.##}";
             _store.Save();
             Reload();
         }
@@ -358,6 +383,7 @@ public partial class QoderViewModel : ViewModelBase
                         failed++;
                         details.Add($"{name}：暂无可领取的活动");
                     }
+                    await RefreshQuotaAsync(acc, api);
                     continue;
                 }
 
@@ -390,8 +416,7 @@ public partial class QoderViewModel : ViewModelBase
                     claimedCredits += got;
                     acc.LastClaimMessage = $"已领取 {got:0.##}";
                     acc.LastClaimAt = DateTime.Now;
-                    var quota = await api.FetchQuotaAsync(acc);
-                    if (quota != null) acc.Remaining = quota.Remaining;
+                    await RefreshQuotaAsync(acc, api);
                 }
                 else if (blockedCount > 0)
                 {
@@ -399,10 +424,12 @@ public partial class QoderViewModel : ViewModelBase
                     ok++;
                     acc.LastClaimMessage = "同人已领取";
                     acc.LastClaimAt = DateTime.Now;
+                    await RefreshQuotaAsync(acc, api);
                 }
                 else
                 {
                     failed++;
+                    await RefreshQuotaAsync(acc, api);
                 }
             }
             _store.Save();
@@ -420,6 +447,24 @@ public partial class QoderViewModel : ViewModelBase
             IsBusy = false;
             RefreshSummaries();
         }
+    }
+
+    /// <summary>
+    /// 拉一次积分与套餐并写回账号。失败只记在 <see cref="QoderApiClient.LastError"/>，
+    /// 保留账号原有的数值——签到成不成功与积分显示是两件事，不能因为积分没拉到就判签到失败。
+    /// </summary>
+    private async Task RefreshQuotaAsync(QoderAccount acc, QoderApiClient api)
+    {
+        var quota = await api.FetchQuotaAsync(acc);
+        if (quota != null)
+        {
+            acc.Remaining = quota.Remaining;
+            acc.Used = quota.Used;
+            acc.Total = quota.Total;
+            acc.IsExceeded = quota.IsExceeded;
+        }
+        var plan = await api.FetchPlanAsync(acc);
+        if (!string.IsNullOrEmpty(plan)) acc.Plan = plan;
     }
 
     /// <summary>删除当前选中的账号（只删本地凭据，不影响 Qoder 侧登录态）。</summary>

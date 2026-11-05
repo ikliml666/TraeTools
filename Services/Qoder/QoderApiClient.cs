@@ -341,7 +341,8 @@ public sealed class QoderApiClient
             var json = await resp.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            return ReadString(root, "planName") ?? ReadString(root, "name");
+            // 上游实际字段是 plan_tier_name（如 "Pro Trial"、"Free"），planName/name 是旧形态。
+            return ReadString(root, "plan_tier_name") ?? ReadString(root, "planName") ?? ReadString(root, "name");
         }
         catch (Exception ex)
         {
@@ -490,17 +491,17 @@ public sealed class QoderApiClient
         foreach (var name in new[] { "userQuota", "addOnQuota" })
         {
             if (!root.TryGetProperty(name, out var q) || q.ValueKind != JsonValueKind.Object) continue;
+            // 只有额度块里真的带着这三个键，才说明这次响应是可读的；Free 账号三值全 0 是真实额度，不是结构变了。
+            if (!q.TryGetProperty("remaining", out _) && !q.TryGetProperty("total", out _)) continue;
             found = true;
             remaining += ReadNumber(q, "remaining");
             used += ReadNumber(q, "used");
             total += ReadNumber(q, "total");
         }
 
-        if (!found) return null;
-        // 守卫：上游明确超限却报全 0，说明结构变了，别把读不懂的结果写成 0 余额。
-        if (exceeded && remaining == 0 && total == 0) return null;
-
-        return new QoderQuota { Remaining = remaining, Used = used, Total = total, IsExceeded = exceeded };
+        return found
+            ? new QoderQuota { Remaining = remaining, Used = used, Total = total, IsExceeded = exceeded }
+            : null;
     }
 
     private static List<QoderCampaign> ParseCampaigns(JsonElement root)

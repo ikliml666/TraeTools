@@ -314,6 +314,7 @@ public partial class MainViewModel : ViewModelBase
                 break;
             case "qoder":
                 _qoder.Reload();
+                _ = _qoder.LoadCreditsAsync();   // 还没取过积分的账号在进页面时补拉一次
                 CurrentPage = _qoder;
                 CurrentPageKey = "qoder";
                 break;
