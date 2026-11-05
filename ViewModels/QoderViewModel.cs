@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -51,9 +49,8 @@ public partial class QoderViewModel : ViewModelBase
     private readonly QoderStore _store = QoderStore.Load();
     private readonly QoderApiClient? _api = MainViewModel.QoderApi;
 
-    /// <summary>设备码登录的轮询间隔与总时长（与上游授权页的等待窗口一致）。</summary>
+    /// <summary>设备码登录的轮询间隔（上游授权页通常几秒内就能点完）。</summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(1500);
-    private static readonly TimeSpan PollTimeout = TimeSpan.FromMinutes(10);
 
     public ObservableCollection<QoderAccountRow> Accounts { get; } = new();
 
@@ -161,7 +158,8 @@ public partial class QoderViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 添加账号：本地生成 PKCE/nonce → 开浏览器授权页 → 轮询直到拿到令牌 → 拉 userinfo 建档。
+    /// 添加账号：本地发起设备码授权 → 开浏览器 → 轮询直到拿到令牌 → 拉 userinfo 建档。
+    /// 会话状态由 <see cref="QoderLogin"/> 持有（发起与轮询是两次独立的 UI 动作）。
     /// </summary>
     [RelayCommand]
     private async Task AddAccountAsync()
@@ -177,42 +175,39 @@ public partial class QoderViewModel : ViewModelBase
         IsBusy = true;
         StatusMessage = "正在发起设备码授权…";
         LoginHint = "";
+        QoderLoginSession? session = null;
         try
         {
-            var machineId = QoderIdentity.ResolveMachineId(region);
-            var (verifier, challenge) = QoderIdentity.Pkce();
-            var nonce = QoderIdentity.Nonce(region);
-            var url = QoderApiClient.BuildAuthorizeUrl(region, machineId, nonce, challenge);
-
+            session = QoderLogin.Start(region);
             StatusMessage = "已在浏览器打开授权页，请在其中选择并确认账号";
-            LoginHint = url;
-            OpenInBrowser(url);
+            LoginHint = session.AuthorizeUrl;
+            QoderLogin.OpenInBrowser(session.AuthorizeUrl);
 
-            var deadline = DateTime.Now + PollTimeout;
+            var deadline = DateTime.Now + QoderLogin.Timeout;
             while (DateTime.Now < deadline)
             {
                 await Task.Delay(PollInterval);
-                var token = await api.PollDeviceTokenAsync(region, nonce, verifier);
-                if (token == null)
+                var polled = await QoderLogin.PollAsync(api, region, session.LoginId);
+                if (polled == null)
                 {
                     StatusMessage = api.TakeLastError() ?? "等待你在浏览器中完成授权…";
                     continue;
                 }
-
-                StatusMessage = "已取得令牌，正在读取账号信息…";
-                var info = await api.FetchUserInfoAsync(region, token.AccessToken);
-                if (info == null)
+                if (polled.Error != null)
                 {
-                    StatusMessage = api.LastError ?? "读取账号信息失败";
+                    StatusMessage = "登录失败：" + polled.Error;
                     return;
                 }
-                _store.Upsert(info, region, token);
+                if (polled.Token == null || polled.UserInfo == null) continue;
+
+                _store.Upsert(polled.UserInfo, region, polled.Token);
                 _store.Save();
                 Reload();
-                StatusMessage = $"已添加账号：{info.Name ?? info.Id}";
+                StatusMessage = $"已添加账号：{polled.UserInfo.Name ?? polled.UserInfo.Id}";
+                LoginHint = "";
                 return;
             }
-            StatusMessage = "授权超时，请重新点击「添加 Qoder 账号」";
+            StatusMessage = "授权超时，请重新点击「添加账号」";
         }
         catch (Exception ex)
         {
@@ -220,8 +215,24 @@ public partial class QoderViewModel : ViewModelBase
         }
         finally
         {
+            // 会话里存着 PKCE verifier，用完必须释放；中途异常退出也一样。
+            if (session != null) QoderLogin.Cancel(session.LoginId);
             IsBusy = false;
         }
+    }
+
+    /// <summary>
+    /// 令牌过期就自动续期：能刷就刷（drt-/jrt-/PAT），刷不了才要求重新登录。
+    /// 调用方只在拿到失败结果后调用一次，不做重试循环——刷不动的凭据重试也只是白打上游。
+    /// </summary>
+    private async Task<bool> EnsureTokenAsync(QoderAccount account, QoderApiClient api)
+    {
+        if (account.ExpiresAt is { } at && at > DateTime.Now && account.HasToken) return true;
+        var refreshed = await QoderRefresh.RefreshAsync(api, account);
+        if (refreshed == null) return false;
+        _store.SetTokens(account.Id, refreshed);
+        _store.Save();
+        return true;
     }
 
     /// <summary>刷新当前选中账号的积分与套餐。</summary>
@@ -240,6 +251,11 @@ public partial class QoderViewModel : ViewModelBase
         IsBusy = true;
         try
         {
+            if (!await EnsureTokenAsync(target, api))
+            {
+                StatusMessage = "令牌已失效且无法自动续期，请重新登录：" + (api.LastError ?? "没有可用的刷新凭证");
+                return;
+            }
             var quota = await api.FetchQuotaAsync(target);
             if (quota != null)
             {
@@ -294,10 +310,16 @@ public partial class QoderViewModel : ViewModelBase
             foreach (var acc in _store.Accounts.ToList())
             {
                 var name = string.IsNullOrEmpty(acc.Name) ? acc.Id[..Math.Min(6, acc.Id.Length)] : acc.Name!;
-                if (!acc.HasToken)
+                if (!acc.HasToken && !acc.Shape().CanRefresh)
                 {
                     failed++;
                     details.Add($"{name}：缺少令牌，请重新登录");
+                    continue;
+                }
+                if (!await EnsureTokenAsync(acc, api))
+                {
+                    failed++;
+                    details.Add($"{name}：令牌续期失败（{api.LastError ?? "没有可用的刷新凭证"}）");
                     continue;
                 }
                 var campaigns = await api.FetchCampaignsAsync(acc);
@@ -307,8 +329,11 @@ public partial class QoderViewModel : ViewModelBase
                     details.Add($"{name}：{api.LastError ?? "活动列表不可用"}");
                     continue;
                 }
-                var claimable = campaigns.Where(c => c.IsCreditKind && c.IsClaimable).ToList();
-                var already = campaigns.Where(c => c.IsCreditKind && c.IsClaimed).ToList();
+                var claimable = campaigns.Where(c => c.Classify() == QoderCampaignClass.Claimable).ToList();
+                var already = campaigns.Where(c => c.Classify() == QoderCampaignClass.Already).ToList();
+                var blocked = campaigns
+                    .Where(c => c.Classify() is QoderCampaignClass.Pending or QoderCampaignClass.Locked)
+                    .ToList();
 
                 if (claimable.Count == 0)
                 {
@@ -318,6 +343,15 @@ public partial class QoderViewModel : ViewModelBase
                         acc.LastClaimMessage = "今日已领取";
                         acc.LastClaimAt = DateTime.Now;
                         details.Add($"{name}：今日已领取（{already[0].Title}）");
+                    }
+                    else if (blocked.Count > 0)
+                    {
+                        // 有活动但被库存/前置条件挡住——不是「今天没活动」，得说清是哪一种。
+                        failed++;
+                        var reason = QoderCampaign.FailureReason(blocked[0].UnavailableReason)
+                                     ?? blocked[0].UnavailableReason
+                                     ?? "暂不可领取";
+                        details.Add($"{name}：{reason}");
                     }
                     else
                     {
@@ -329,6 +363,7 @@ public partial class QoderViewModel : ViewModelBase
 
                 var got = 0.0;
                 var any = false;
+                var blockedCount = 0;
                 foreach (var c in claimable)
                 {
                     var result = await api.ClaimCampaignAsync(acc, c.Id);
@@ -337,6 +372,11 @@ public partial class QoderViewModel : ViewModelBase
                         any = true;
                         got += c.Amount;
                         details.Add($"{name}：已领取「{c.Title}」{c.Amount:0.##}");
+                    }
+                    else if (result.Blocked)
+                    {
+                        blockedCount++;
+                        details.Add($"{name}：{result.Message}");
                     }
                     else
                     {
@@ -352,6 +392,13 @@ public partial class QoderViewModel : ViewModelBase
                     acc.LastClaimAt = DateTime.Now;
                     var quota = await api.FetchQuotaAsync(acc);
                     if (quota != null) acc.Remaining = quota.Remaining;
+                }
+                else if (blockedCount > 0)
+                {
+                    // 同人已领：本账号今天确实领不到，但不是它自己的问题，按已处理记。
+                    ok++;
+                    acc.LastClaimMessage = "同人已领取";
+                    acc.LastClaimAt = DateTime.Now;
                 }
                 else
                 {
@@ -391,18 +438,6 @@ public partial class QoderViewModel : ViewModelBase
     private void ReopenLoginPage()
     {
         if (string.IsNullOrEmpty(LoginHint)) return;
-        OpenInBrowser(LoginHint);
-    }
-
-    private static void OpenInBrowser(string url)
-    {
-        try
-        {
-            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException("无法打开浏览器，请手动复制授权链接：" + url, ex);
-        }
+        QoderLogin.OpenInBrowser(LoginHint);
     }
 }

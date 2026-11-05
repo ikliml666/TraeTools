@@ -20,6 +20,12 @@ public class QoderAccount
     public string? AccessToken { get; set; }
     public string? RefreshToken { get; set; }
 
+    /// <summary>
+    /// 个人访问令牌（<c>pt-</c>，长期有效）。设备流登录不会产生它，
+    /// 但用户手动粘贴过 PAT 时它是访问令牌过期后的唯一兜底——可以兑换出 jobToken。
+    /// </summary>
+    public string? PersonalToken { get; set; }
+
     /// <summary>访问令牌到期时间（本地时间）。null 表示上游没给，按 30 天推算。</summary>
     public DateTime? ExpiresAt { get; set; }
 
@@ -42,4 +48,18 @@ public class QoderAccount
     public DateTime? LastClaimAt { get; set; }
 
     public bool HasToken => !string.IsNullOrEmpty(AccessToken);
+
+    /// <summary>当前凭据形态：能不能调用、能不能刷新、有没有兜底 PAT。</summary>
+    public QoderCredentialShape Shape()
+    {
+        var accessKind = QoderTokens.KindOf(AccessToken);
+        var refreshKind = QoderTokens.KindOf(RefreshToken);
+        return new QoderCredentialShape
+        {
+            Access = accessKind != null && QoderTokens.IsAccess(accessKind.Value) ? accessKind : null,
+            Refresh = refreshKind != null && QoderTokens.IsRefresh(refreshKind.Value) ? refreshKind : null,
+            Pat = !string.IsNullOrEmpty(PersonalToken),
+            Unrecognized = !string.IsNullOrEmpty(RefreshToken) && refreshKind == null,
+        };
+    }
 }

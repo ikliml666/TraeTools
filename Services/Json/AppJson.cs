@@ -4,6 +4,7 @@ using System.Text.Json.Serialization.Metadata;
 using TraeCheckin;
 using TraeSwitch.Services;
 using TraeTools.Models;
+using TraeTools.Services.Json;
 using TraeTools.Services.Login;
 using TraeTools.Services.Notify;
 
@@ -71,6 +72,9 @@ public static class AppJsonIndented
 [JsonSerializable(typeof(AccountBackup.Payload))]
 // Qoder 账号库容器（独立文件，不与 Trae 账号混存）
 [JsonSerializable(typeof(TraeTools.Services.Qoder.QoderStoreDocument))]
+// Qoder 令牌刷新/兑换的请求体（按刷新令牌前缀分流到不同端点）
+[JsonSerializable(typeof(QoderTokenRefreshRequest))]
+[JsonSerializable(typeof(QoderPatExchangeRequest))]
 internal sealed partial class CompactJsonContext : JsonSerializerContext
 {
 }

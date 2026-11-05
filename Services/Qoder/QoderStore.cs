@@ -49,6 +49,7 @@ public sealed class QoderStore
                 {
                     acc.AccessToken = Unprotect(acc.AccessToken);
                     acc.RefreshToken = Unprotect(acc.RefreshToken);
+                    acc.PersonalToken = Unprotect(acc.PersonalToken);
                 }
                 store.Accounts.Add(acc);
             }
@@ -78,6 +79,7 @@ public sealed class QoderStore
                 Domain = acc.Domain,
                 AccessToken = Protect(acc.AccessToken),
                 RefreshToken = Protect(acc.RefreshToken),
+                PersonalToken = Protect(acc.PersonalToken),
                 ExpiresAt = acc.ExpiresAt,
                 AddedAt = acc.AddedAt,
                 Remaining = acc.Remaining,
@@ -117,6 +119,20 @@ public sealed class QoderStore
         var idx = Accounts.FindIndex(a => a.Id == id);
         if (idx < 0) return false;
         Accounts.RemoveAt(idx);
+        return true;
+    }
+
+    /// <summary>
+    /// 只更新令牌字段。刷新路径专用——<see cref="Upsert"/> 是登录/导入路径，
+    /// 用它回写刷新结果会把本地备注、昵称、积分等上游不知道的字段整条清掉。
+    /// </summary>
+    public bool SetTokens(string id, QoderTokenRefresh token)
+    {
+        var account = Accounts.Find(a => a.Id == id);
+        if (account == null) return false;
+        if (!string.IsNullOrEmpty(token.AccessToken)) account.AccessToken = token.AccessToken;
+        if (!string.IsNullOrEmpty(token.RefreshToken)) account.RefreshToken = token.RefreshToken;
+        if (token.ExpiresAt != null) account.ExpiresAt = token.ExpiresAt;
         return true;
     }
 

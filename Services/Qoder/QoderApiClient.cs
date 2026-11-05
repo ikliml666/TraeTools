@@ -4,8 +4,24 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using TraeTools.Services.Json;
 
 namespace TraeTools.Services.Qoder;
+
+/// <summary>一条活动的归类结果。</summary>
+public enum QoderCampaignClass
+{
+    /// <summary>今天已经领过（上游 claimStatus=CLAIMED 且有奖励）。</summary>
+    Already,
+    /// <summary>现在可以领。</summary>
+    Claimable,
+    /// <summary>名额/库存类暂时不可领，过段时间可能恢复。</summary>
+    Pending,
+    /// <summary>被前置条件锁住（如新人任务未完成），今天内不会自己解锁。</summary>
+    Locked,
+    /// <summary>详情类活动（没有奖励或不是领取类动作），不参与领取。</summary>
+    View,
+}
 
 /// <summary>一个可领取/已领取的活动条目。</summary>
 public sealed class QoderCampaign
@@ -20,6 +36,8 @@ public sealed class QoderCampaign
     public double Amount { get; init; }
     public string? BenefitKind { get; init; }
     public string? UnavailableReason { get; init; }
+    /// <summary>上游的成就完成标记；false 且不可领 ⇒ 归为 Locked。</summary>
+    public bool AchievementCompleted { get; init; }
 
     /// <summary>积分类活动：benefit.kind 为 CREDITS 或留空（老活动不写 kind）。</summary>
     public bool IsCreditKind =>
@@ -27,6 +45,52 @@ public sealed class QoderCampaign
 
     public bool IsClaimed => Status.Equals("CLAIMED", StringComparison.OrdinalIgnoreCase);
     public bool IsClaimable => Status.Equals("CLAIMABLE", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 领取类动作：actionType 留空或 CLAIM_BENEFIT。
+    /// 领取成功后官方会把 actionType 降级成 VIEW_DETAILS，所以这个判据**不能**用来判「已领」。
+    /// </summary>
+    private bool IsActionable =>
+        string.IsNullOrEmpty(ActionType) || ActionType.Equals("CLAIM_BENEFIT", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 归类。<b>顺序不可调</b>：先判 CLAIMED，再看是否可领。
+    /// 若先按 <see cref="IsActionable"/> 过滤，领取后 actionType 被降级的活动会被误判成「详情类」，
+    /// 用户看到的是「明明领过却报今天没活动」。
+    /// </summary>
+    public QoderCampaignClass Classify()
+    {
+        if (IsClaimed)
+            return Amount > 0 || IsActionable ? QoderCampaignClass.Already : QoderCampaignClass.View;
+
+        // 以下只针对还没领的活动：详情类没有奖励，不参与领取。
+        if (!IsActionable) return QoderCampaignClass.View;
+
+        if (!IsClaimable)
+        {
+            var reason = (UnavailableReason ?? "").ToUpperInvariant();
+            if (reason == "REDEMPTION_CODE_OUT_OF_STOCK") return QoderCampaignClass.Pending;
+            if (reason == "ACHIEVEMENT_NOT_COMPLETED") return QoderCampaignClass.Locked;
+            if (!AchievementCompleted) return QoderCampaignClass.Locked;
+            return QoderCampaignClass.View;
+        }
+        return QoderCampaignClass.Claimable;
+    }
+
+    /// <summary>上游失败码的中文说明；不认识返回 null（调用方原样透出，不编）。</summary>
+    public static string? FailureReason(string? code)
+    {
+        if (string.IsNullOrEmpty(code)) return null;
+        return code.ToUpperInvariant() switch
+        {
+            "REDEMPTION_CODE_OUT_OF_STOCK" => "今日名额已发完（每日 10:00 刷新，次日再来）",
+            "ACHIEVEMENT_NOT_COMPLETED" => "需先完成新人任务（成就未完成）",
+            "CAMPAIGN_NOT_ACTIVE" => "活动已结束 / 未开始",
+            "RISK_BLOCKED" => "风控拦截（当前设备 / 账号不可领取）",
+            "RISK_DEPENDENCY_UNAVAILABLE" => "风控服务不可用，稍后重试",
+            _ => null,
+        };
+    }
 }
 
 /// <summary>一次领取的结果。</summary>
@@ -35,6 +99,8 @@ public sealed class QoderClaimResult
     public bool Ok { get; init; }
     /// <summary>上游回报「今日已领」（幂等重放），语义上等同成功。</summary>
     public bool AlreadyClaimed { get; init; }
+    /// <summary>服务端按「人」去重：同机其它账号本轮已领。既非成功也非凭据故障。</summary>
+    public bool Blocked { get; init; }
     public string Message { get; init; } = "";
 }
 
@@ -55,6 +121,15 @@ public sealed class QoderClaimResult
 /// </summary>
 public sealed class QoderApiClient
 {
+    /// <summary>设备流刷新端点（<c>drt-</c> 打这里）。</summary>
+    internal const string PathDeviceTokenRefresh = "/api/v1/deviceToken/refresh";
+    /// <summary>jobToken 刷新端点（<c>jrt-</c> 打这里）。</summary>
+    internal const string PathJobTokenRefresh = "/api/v1/jobToken/refresh";
+    /// <summary>PAT 兑换 jobToken（只有 <c>pt-</c> 时的兜底路径）。</summary>
+    internal const string PathJobTokenExchange = "/api/v1/jobToken/exchange";
+    /// <summary>活动平台（签到入口）。</summary>
+    internal const string PathCampaigns = "/sash/api/v1/me/campaigns";
+
     private readonly HttpClient _http;
 
     public string? LastError { get; private set; }
@@ -66,6 +141,9 @@ public sealed class QoderApiClient
         LastError = null;
         return err;
     }
+
+    /// <summary>供 <see cref="QoderRefresh"/> 这类静态调用方写入失败原因。</summary>
+    internal void SetError(string message) => LastError = message;
 
     public QoderApiClient()
     {
@@ -168,6 +246,59 @@ public sealed class QoderApiClient
         }
     }
 
+    // ===================== 令牌刷新 =====================
+
+    /// <summary>
+    /// 按家族刷新令牌。设备流与 jobToken 走不同端点，拿错端点上游回 401。
+    /// </summary>
+    public async Task<QoderTokenRefresh?> RefreshTokenAsync(
+        QoderRegion region, QoderRefreshPlan plan, string refreshToken)
+    {
+        var path = plan == QoderRefreshPlan.Job ? PathJobTokenRefresh : PathDeviceTokenRefresh;
+        var body = AppJson.Serialize(new QoderTokenRefreshRequest { RefreshToken = refreshToken });
+        return await PostTokenAsync(region, path, body, plan, refreshToken);
+    }
+
+    /// <summary>PAT 兑换 jobToken（<c>pt-</c> 的续期路径）。</summary>
+    public async Task<QoderTokenRefresh?> ExchangePersonalTokenAsync(QoderRegion region, string personalToken)
+    {
+        var body = AppJson.Serialize(new QoderPatExchangeRequest { PersonalToken = personalToken });
+        return await PostTokenAsync(region, PathJobTokenExchange, body, QoderRefreshPlan.Job, "");
+    }
+
+    private async Task<QoderTokenRefresh?> PostTokenAsync(
+        QoderRegion region, string path, string body, QoderRefreshPlan plan, string previousRefresh)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, region.OpenApiBase + path);
+            req.Content = new StringContent(body, Encoding.UTF8, "application/json");
+            req.Headers.TryAddWithoutValidation("Accept", "application/json");
+            req.Headers.TryAddWithoutValidation("User-Agent", region.UserAgent);
+            using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+            var status = (int)resp.StatusCode;
+            var json = await resp.Content.ReadAsStringAsync();
+            if (status < 200 || status >= 300)
+            {
+                LastError = $"刷新令牌失败：HTTP {status} {json}";
+                return null;
+            }
+            using var doc = JsonDocument.Parse(json);
+            var parsed = QoderRefresh.Parse(plan, doc.RootElement, previousRefresh);
+            if (string.IsNullOrEmpty(parsed.AccessToken))
+            {
+                LastError = "刷新响应缺少访问令牌";
+                return null;
+            }
+            return parsed;
+        }
+        catch (Exception ex)
+        {
+            LastError = ex.Message;
+            return null;
+        }
+    }
+
     // ===================== 额度与签到 =====================
 
     /// <summary>查询额度（积分）。解析不出有效结构时抛错，不把「读不懂」写成 0 余额。</summary>
@@ -224,30 +355,40 @@ public sealed class QoderApiClient
     {
         var region = QoderRegion.FromDomain(account.Domain);
         if (region == null || string.IsNullOrEmpty(account.AccessToken)) return null;
+
+        var first = await FetchCampaignsAtAsync(region, account);
+        if (first.Status != 404 && first.Status != 405 && first.Status != 410) return first.Items;
+
+        // 「整区没有接口」的结论必须可复现：404/405/410 可能是代理/网关抖动，
+        // 实测同账号相隔十几分钟一次 DISABLED 一次 CLAIMABLE。原样重发一次再判。
+        var retry = await FetchCampaignsAtAsync(region, account);
+        if (retry.Status != 404 && retry.Status != 405 && retry.Status != 410) return retry.Items;
+        LastError = "该区域没有活动平台";
+        return null;
+    }
+
+    private async Task<(int Status, List<QoderCampaign>? Items)> FetchCampaignsAtAsync(
+        QoderRegion region, QoderAccount account)
+    {
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, region.OpenApiBase + "/sash/api/v1/me/campaigns");
+            using var req = new HttpRequestMessage(HttpMethod.Get, region.OpenApiBase + PathCampaigns);
             ApplyCampaignHeaders(req, region, account);
             using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
             var status = (int)resp.StatusCode;
             var json = await resp.Content.ReadAsStringAsync();
-            if (status == 404 || status == 405 || status == 410)
-            {
-                LastError = "该区域没有活动平台";
-                return null;
-            }
             if (status < 200 || status >= 300)
             {
                 LastError = $"活动列表失败：HTTP {status} {json}";
-                return null;
+                return (status, null);
             }
             using var doc = JsonDocument.Parse(json);
-            return ParseCampaigns(doc.RootElement);
+            return (status, ParseCampaigns(doc.RootElement));
         }
         catch (Exception ex)
         {
             LastError = ex.Message;
-            return null;
+            return (0, null);
         }
     }
 
@@ -271,18 +412,34 @@ public sealed class QoderApiClient
                 return new QoderClaimResult { Ok = true, AlreadyClaimed = true, Message = "今日已领取（上游幂等确认）" };
 
             string? code = null;
+            string? failureCode = null;
+            string? claimStatus = null;
             if (json.Length > 0)
             {
                 try
                 {
                     using var doc = JsonDocument.Parse(json);
                     code = ReadString(doc.RootElement, "errorCode");
+                    failureCode = ReadString(doc.RootElement, "failureCode");
+                    claimStatus = ReadString(doc.RootElement, "status");
                 }
                 catch (JsonException) { /* 非 JSON 响应按失败处理，下面统一给出原文 */ }
             }
             if (code != null && (code.Equals("ALREADY_CLAIMED", StringComparison.OrdinalIgnoreCase)
                               || code.Equals("REPLAYED", StringComparison.OrdinalIgnoreCase)))
                 return new QoderClaimResult { Ok = true, AlreadyClaimed = true, Message = "今日已领取" };
+
+            // 服务端按「人」去重：同机其它账号本轮已领。这不是失败，但也不是成功，
+            // 得单独标出来，否则用户看到「领取失败」会以为凭据坏了。
+            var blocked = (failureCode != null && failureCode.Equals("SAME_PERSON_ALREADY_CLAIMED", StringComparison.OrdinalIgnoreCase))
+                       || (claimStatus != null && claimStatus.Equals("BLOCKED", StringComparison.OrdinalIgnoreCase));
+            if (blocked)
+                return new QoderClaimResult
+                {
+                    Ok = false,
+                    Blocked = true,
+                    Message = "同人已领取（同一设备/身份下的其他账号本轮已领，服务端按人去重）",
+                };
 
             if (status >= 200 && status < 300)
                 return new QoderClaimResult { Ok = true, Message = "领取成功" };
@@ -375,6 +532,7 @@ public sealed class QoderApiClient
                 Amount = amount,
                 BenefitKind = kind,
                 UnavailableReason = ReadString(item, "unavailableReason"),
+                AchievementCompleted = ReadBool(item, "achievementCompleted"),
             });
         }
         return list;
@@ -396,7 +554,7 @@ public sealed class QoderApiClient
         return null;
     }
 
-    private static DateTime? ReadExpiry(JsonElement root, TimeSpan fallback)
+    internal static DateTime? ReadExpiry(JsonElement root, TimeSpan fallback)
     {
         // expires_in 单位是毫秒；expires_at 是本地时间字符串。都没有就按 fallback 推算。
         var ms = ReadNumber(root, "expires_in");

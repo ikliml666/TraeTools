@@ -65,3 +65,15 @@ internal sealed class TraeExchangeTokenRequest
     [JsonPropertyName("ClientSecret")] public string ClientSecret { get; set; } = "-";
     [JsonPropertyName("UserID")] public string UserId { get; set; } = "";
 }
+
+/// <summary>Qoder 设备流/jobToken 刷新体：{ refresh_token }。</summary>
+internal sealed class QoderTokenRefreshRequest
+{
+    [JsonPropertyName("refresh_token")] public string RefreshToken { get; set; } = "";
+}
+
+/// <summary>Qoder PAT 兑换 jobToken 体：{ personal_token }。</summary>
+internal sealed class QoderPatExchangeRequest
+{
+    [JsonPropertyName("personal_token")] public string PersonalToken { get; set; } = "";
+}
