@@ -111,7 +111,7 @@
                 <StackPanel Spacing="6">
                     <TextBlock Text="签到说明" Classes="card-title" />
                     <TextBlock FontSize="11" Foreground="{DynamicResource TextMutedBrush}" TextWrapping="Wrap"
-                               Text="Qoder 的每日奖励通过活动平台发放（「每日领取 100 Credits」），领取按人计算：同一台机器上的多个账号共享额度，后领的账号会收到「已由同一人领取」。上游判为已领取的账号按成功处理。" />
+                               Text="Qoder 的每日奖励通过活动平台发放（「每日领取 100 Credits」），领取按账号身份去重：后领的账号可能收到「已由同一人领取」，上游判为已领取的按成功处理。每个账号登录时使用独立的设备标识，不会被聚合成同一台设备。" />
                     <TextBlock FontSize="11" Foreground="{DynamicResource TextMutedBrush}" TextWrapping="Wrap"
                                Text="登录由浏览器完成：点「添加账号」后会在浏览器打开授权页，请在其中选择要登录的 Qoder 账号并确认；本程序只读取授权结果，不接触你的密码。" />
                 </StackPanel>

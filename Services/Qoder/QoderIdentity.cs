@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -14,8 +13,9 @@ namespace TraeTools.Services.Qoder;
 /// 避免上游把机器码与会话码直接关联。
 /// </para>
 /// <para>
-/// machine_id 优先读本机 Qoder 客户端留下的原生值；读不到才回落自造值并持久化
-/// （持久化失败是硬失败——静默返回会让设备身份每次启动都漂移）。
+/// machine_id 每账号独立：授权 URL 里的 <c>machine_id</c> 决定上游把这个账号注册到哪台
+/// 机器上，所有账号共用一份会让服务端把多个账号聚合成同一台设备。刻意不复用本机 Qoder
+/// 客户端留下的原生值——那会把账号绑到真实设备，正是要隔离的东西。
 /// </para>
 /// </summary>
 public static class QoderIdentity
@@ -39,57 +39,11 @@ public static class QoderIdentity
     public static string MachineType(string uid) => DeriveId(uid, "machinetype")[..18];
 
     /// <summary>
-    /// 取 machine_id：先读 Qoder 客户端留下的原生值，读不到则生成并持久化。
+    /// 生成一份新的设备标识，用于授权 URL 的 <c>machine_id</c>。
+    /// 每次登录都取一个新值：它决定上游把这个账号注册到哪台机器，
+    /// 账号之间绝不共用，上游才不会把多个账号聚合成同一台设备。
     /// </summary>
-    public static string ResolveMachineId(QoderRegion region)
-    {
-        foreach (var candidate in NativeMachineIdPaths(region))
-        {
-            try
-            {
-                if (!File.Exists(candidate)) continue;
-                var text = File.ReadAllText(candidate).Trim();
-                if (text.Length > 0) return text;
-            }
-            catch { /* 单个候选读不到就试下一个，最后才生成 */ }
-        }
-
-        var path = PersistedMachineIdPath(region);
-        try
-        {
-            if (File.Exists(path))
-            {
-                var existing = File.ReadAllText(path).Trim();
-                if (existing.Length > 0) return existing;
-            }
-            var generated = Guid.NewGuid().ToString();
-            var dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            File.WriteAllText(path, generated);
-            return generated;
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException("无法持久化 Qoder 设备标识：" + path, ex);
-        }
-    }
-
-    private static string[] NativeMachineIdPaths(QoderRegion region)
-    {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var cliDir = region.Id == "cn" ? ".qoder-cn" : ".qoder";
-        var appDir = region.Id == "cn" ? "com.qodercn.app.stable" : "com.qoder.app.stable";
-        return new[]
-        {
-            Path.Combine(home, cliDir, ".auth", "machine_id"),
-            Path.Combine(appData, appDir, "auth.machine-id"),
-        };
-    }
-
-    private static string PersistedMachineIdPath(QoderRegion region)
-        => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                        "TraeTools", "qoder", "machine_id." + region.Id + ".txt");
+    public static string NewMachineId() => Guid.NewGuid().ToString();
 
     /// <summary>生成 PKCE 的 verifier 与 S256 challenge。</summary>
     public static (string Verifier, string Challenge) Pkce()

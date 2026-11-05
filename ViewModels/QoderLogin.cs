@@ -47,7 +47,8 @@ public static class QoderLogin
     /// </summary>
     public static QoderLoginSession Start(QoderRegion region)
     {
-        var machineId = QoderIdentity.ResolveMachineId(region);
+        // 每次登录新开一份设备标识：授权 URL 里的 machine_id 决定上游把账号注册到哪台机器。
+        var machineId = QoderIdentity.NewMachineId();
         var (verifier, challenge) = QoderIdentity.Pkce();
         var nonce = QoderIdentity.Nonce(region);
         var url = QoderApiClient.BuildAuthorizeUrl(region, machineId, nonce, challenge);
