@@ -80,7 +80,8 @@ public static class AccountBackup
             if (string.IsNullOrEmpty(passphrase) || passphrase!.Length < 6)
                 return new BackupResult { Ok = false, Message = "口令至少 6 位" };
 
-            var list = accounts.Where(a => !string.IsNullOrEmpty(a.Token) || !string.IsNullOrEmpty(a.Session)).ToList();
+            var list = accounts.Where(a => !string.IsNullOrEmpty(a.Token) || !string.IsNullOrEmpty(a.Session)
+                                           || !string.IsNullOrEmpty(a.RefreshToken)).ToList();
             if (list.Count == 0)
                 return new BackupResult { Ok = false, Message = "没有可导出的账号（尚无账号已登录）" };
 
@@ -196,6 +197,8 @@ public static class AccountBackup
                 {
                     match.Token = src.Token ?? match.Token;
                     match.Session = src.Session ?? match.Session;
+                    match.RefreshToken = src.RefreshToken ?? match.RefreshToken;
+                    match.RefreshExpiresAt = src.RefreshExpiresAt ?? match.RefreshExpiresAt;
                     if (!string.IsNullOrWhiteSpace(src.DeviceId)) match.DeviceId = src.DeviceId;
                     match.TokenUpdatedAt = src.TokenUpdatedAt ?? match.TokenUpdatedAt;
                     match.AccountUid ??= src.AccountUid;
@@ -218,6 +221,8 @@ public static class AccountBackup
                     Name = src.Name,
                     Token = src.Token,
                     Session = src.Session,
+                    RefreshToken = src.RefreshToken,
+                    RefreshExpiresAt = src.RefreshExpiresAt,
                     DeviceId = deviceId,
                     AccountUid = src.AccountUid,
                     TokenUpdatedAt = src.TokenUpdatedAt,

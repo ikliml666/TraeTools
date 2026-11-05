@@ -50,3 +50,30 @@ internal sealed class GitHubWorkflowDispatchPayload
 {
     [JsonPropertyName("ref")] public string Ref { get; set; } = "main";
 }
+
+/// <summary>GetRefreshToken 体：{ clientID }。</summary>
+internal sealed class TraeRefreshTokenRequest
+{
+    [JsonPropertyName("clientID")] public string ClientId { get; set; } = "";
+}
+
+/// <summary>网页端 ExchangeToken 体：ClientSecret 固定 "-"，UserID 留空，不带设备证明。</summary>
+internal sealed class TraeExchangeTokenRequest
+{
+    [JsonPropertyName("ClientID")] public string ClientId { get; set; } = "";
+    [JsonPropertyName("RefreshToken")] public string RefreshToken { get; set; } = "";
+    [JsonPropertyName("ClientSecret")] public string ClientSecret { get; set; } = "-";
+    [JsonPropertyName("UserID")] public string UserId { get; set; } = "";
+}
+
+/// <summary>Qoder 设备流/jobToken 刷新体：{ refresh_token }。</summary>
+internal sealed class QoderTokenRefreshRequest
+{
+    [JsonPropertyName("refresh_token")] public string RefreshToken { get; set; } = "";
+}
+
+/// <summary>Qoder PAT 兑换 jobToken 体：{ personal_token }。</summary>
+internal sealed class QoderPatExchangeRequest
+{
+    [JsonPropertyName("personal_token")] public string PersonalToken { get; set; } = "";
+}

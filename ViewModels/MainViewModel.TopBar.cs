@@ -20,24 +20,40 @@ namespace TraeTools.ViewModels;
 /// </summary>
 public partial class MainViewModel
 {
-    /// <summary>
-    /// 顶栏下拉的账号列表：直接复用账号切换页的集合，避免两处状态各自维护导致不一致。
-    /// </summary>
-    public ObservableCollection<AccountInfo> TopAccounts => _switch.Accounts;
+    private AccountInfo? _topSelectedAccount;
 
     /// <summary>
-    /// 顶栏下拉当前选中的账号。写入即同步到切换页的选中项（两边永远同一个值）。
+    /// 顶栏下拉的账号列表：以 Trae 账号为真源（与签到页同一份），
+    /// 保证下拉里显示的就是用户实际管理的账号，而不是内部的建档名。
+    /// </summary>
+    public ObservableCollection<AccountInfo> TopAccounts { get; } = new();
+
+    /// <summary>
+    /// 顶栏下拉当前选中的账号。写入时按名字桥接到切换服务的建档账号
+    /// （冷切换执行的是建档备份，两边的账号标识是两套命名）。
     /// </summary>
     public AccountInfo? TopSelectedAccount
     {
-        get => _switch.SelectedAccount;
+        get => _topSelectedAccount;
         set
         {
-            if (ReferenceEquals(_switch.SelectedAccount, value)) return;
-            _switch.SelectedAccount = value;
-            OnPropertyChanged();
+            if (!SetProperty(ref _topSelectedAccount, value)) return;
+            var matched = value == null
+                ? null
+                : _switch.Accounts.FirstOrDefault(a =>
+                    string.Equals(a.Name, value.Name, StringComparison.OrdinalIgnoreCase));
+            _switch.SelectedAccount = matched;
+            OnPropertyChanged(nameof(TopSwitchHint));
         }
     }
+
+    /// <summary>目标账号没有建档备份时的提示（顶栏据此禁用「切换」并给出原因）。</summary>
+    public string? TopSwitchHint =>
+        TopSelectedAccount == null ? null
+        : _switch.SelectedAccount == null ? "该账号尚未建档，无法冷切换" : null;
+
+    /// <summary>「切换」按钮是否可用。</summary>
+    public bool TopCanSwitch => TopSelectedAccount != null && _switch.SelectedAccount != null && !_switch.IsSwitching;
 
     /// <summary>当前真正生效（激活）的账号文案，用于顶栏右侧提示；无账号时给出明确说明。</summary>
     public string TopActiveAccountText
@@ -57,39 +73,50 @@ public partial class MainViewModel
 
     /// <summary>
     /// 刷新顶栏展示。账号增删、激活账号变化后调用（调用方负责在 UI 线程上调用）。
+    /// 重建下拉集合，并把选中项落在当前激活账号上。
     /// </summary>
     public void RefreshTopBar()
     {
-        try
+        var cfg = AppConfig;
+        TopAccounts.Clear();
+        if (cfg != null)
         {
-            OnPropertyChanged(nameof(TopAccounts));
-            OnPropertyChanged(nameof(TopSelectedAccount));
-            OnPropertyChanged(nameof(TopActiveAccountText));
-            OnPropertyChanged(nameof(TopIsSwitching));
+            foreach (var a in cfg.Accounts)
+            {
+                var name = string.IsNullOrEmpty(a.Name)
+                    ? (a.Id.Length > 6 ? a.Id[..6] : a.Id)
+                    : a.Name!;
+                TopAccounts.Add(new AccountInfo
+                {
+                    Id = a.Id,
+                    Name = name,
+                    Initial = name.Length > 0 ? name[..1] : "?",
+                    IsCurrent = a.Id == cfg.ActiveAccountId,
+                });
+            }
         }
-        catch { /* 顶栏刷新失败不影响功能 */ }
+
+        TopSelectedAccount = TopAccounts.FirstOrDefault(a => a.IsCurrent) ?? TopAccounts.FirstOrDefault();
+        OnPropertyChanged(nameof(TopActiveAccountText));
+        OnPropertyChanged(nameof(TopIsSwitching));
+        OnPropertyChanged(nameof(TopCanSwitch));
     }
 
     /// <summary>
-    /// 顶栏「切换」：先跳到账号切换页（切换过程的 5 步进度与日志在那里可见），
-    /// 再执行上游既有的冷切换命令。
+    /// 顶栏「切换」：直接执行上游既有的冷切换命令。
+    /// 切换进度写入运行日志（SwitchViewModel 内部走 AccountHelpers.AppLog("switch", …)）。
     /// </summary>
     [RelayCommand]
     private async Task SwitchToSelectedAccountAsync()
     {
         try
         {
-            if (TopSelectedAccount == null)
-            {
-                Navigate("switch");
-                return;
-            }
+            if (TopSelectedAccount == null) return;
 
-            Navigate("switch");
             OnPropertyChanged(nameof(TopIsSwitching));
             await _switch.SwitchAccountCommand.ExecuteAsync(null);
         }
-        catch { /* 失败原因由切换页日志呈现 */ }
+        catch { /* 失败原因由运行日志呈现 */ }
         finally
         {
             RefreshTopBar();

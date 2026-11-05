@@ -11,10 +11,11 @@ namespace TraeTools.LoginHost;
 ///     { "token": "&lt;Cloud-IDE-Token&gt;", "session": "&lt;X-Cloudide-Session&gt;" }
 /// 退出码：0 = 已取得 token；2 = 取消/未取得；3 = 参数错误；4 = 启动或写回失败。
 /// --selftest 不显示任何窗口，直接回写一份结果，用于在无 GUI 环境校验进程/文件契约。
+/// --expected-uid 是目标账号 uid（不是 token）：宿主只接受属于该账号且未过期的 token。
 /// </summary>
 internal static class Program
 {
-    private sealed record Options(string UserDataDir, string OutFile, string? InitialToken, bool DebugCapture, bool SelfTest);
+    private sealed record Options(string UserDataDir, string OutFile, string? ExpectedUid, bool DebugCapture, bool SelfTest);
 
     [STAThread]
     private static int Main(string[] args)
@@ -35,7 +36,7 @@ internal static class Program
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            using var form = new LoginHostForm(opt.UserDataDir, opt.InitialToken, opt.DebugCapture);
+            using var form = new LoginHostForm(opt.UserDataDir, opt.ExpectedUid, opt.DebugCapture);
             form.FormClosing += (_, _) =>
             {
                 if (!string.IsNullOrEmpty(form.ResultToken))
@@ -58,7 +59,7 @@ internal static class Program
 
     private static Options? ParseArgs(string[] args)
     {
-        string? userDataDir = null, outFile = null, initialToken = null;
+        string? userDataDir = null, outFile = null, expectedUid = null;
         bool debug = false, selfTest = false;
         for (int i = 0; i < args.Length; i++)
         {
@@ -66,13 +67,13 @@ internal static class Program
             {
                 case "--user-data-dir": if (i + 1 < args.Length) userDataDir = args[++i]; break;
                 case "--out": if (i + 1 < args.Length) outFile = args[++i]; break;
-                case "--initial-token": if (i + 1 < args.Length) initialToken = args[++i]; break;
+                case "--expected-uid": if (i + 1 < args.Length) expectedUid = args[++i]; break;
                 case "--debug-capture": debug = true; break;
                 case "--selftest": selfTest = true; break;
             }
         }
         if (string.IsNullOrWhiteSpace(userDataDir) || string.IsNullOrWhiteSpace(outFile)) return null;
-        return new Options(userDataDir, outFile, initialToken, debug, selfTest);
+        return new Options(userDataDir, outFile, expectedUid, debug, selfTest);
     }
 
     /// <summary>临时文件 + 原子替换写回结果，避免主程序读到半截 JSON。</summary>

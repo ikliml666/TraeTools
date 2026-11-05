@@ -382,13 +382,16 @@ public static class SecurityAudit
         foreach (var a in accounts)
         {
             var name = DisplayName(a);
-            if (string.IsNullOrEmpty(a.Session)) noSession++;
+            // 有未过期的 refreshToken 时，Token 过期也能自动续期（且链路最长 180 天）
+            var hasRefresh = !string.IsNullOrEmpty(a.RefreshToken) &&
+                             (a.RefreshExpiresAt == null || a.RefreshExpiresAt > DateTime.Now);
+            if (string.IsNullOrEmpty(a.Session) && !hasRefresh) noSession++;
             var exp = TokenUtils.TryGetExpiry(a.Token);
             if (exp == null) { unknown++; continue; }
             var left = exp.Value - DateTime.Now;
             if (left <= TimeSpan.Zero)
             {
-                if (string.IsNullOrEmpty(a.Session)) expiredNoSession.Add(name);
+                if (string.IsNullOrEmpty(a.Session) && !hasRefresh) expiredNoSession.Add(name);
                 else expiredWithSession.Add(name);
             }
             else if (left < TimeSpan.FromHours(1)) expiringSoon.Add(name);
@@ -398,7 +401,7 @@ public static class SecurityAudit
             return new SecurityFinding
             {
                 Title = "登录态有效期",
-                Detail = "以下账号的 Token 已过期且没有会话 Cookie 可自动续期，必须重新登录："
+                Detail = "以下账号的 Token 已过期且没有可用的续期凭证，必须重新登录："
                          + string.Join("、", expiredNoSession) + "。",
                 Level = "risk",
             };
@@ -406,7 +409,7 @@ public static class SecurityAudit
             return new SecurityFinding
             {
                 Title = "登录态有效期",
-                Detail = "以下账号的 Token 已过期，但可凭会话 Cookie 自动换新（签到或保活时会自动完成）："
+                Detail = "以下账号的 Token 已过期，但可自动换新（签到或保活时会自动完成）："
                          + string.Join("、", expiredWithSession) + "。建议为该账号开启保活。",
                 Level = "warn",
             };
@@ -421,7 +424,7 @@ public static class SecurityAudit
             return new SecurityFinding
             {
                 Title = "登录态有效期",
-                Detail = $"有 {noSession} 个账号没有会话 Cookie，Token 过期后无法自动续期，也无法保活。"
+                Detail = $"有 {noSession} 个账号既没有会话 Cookie 也没有 refreshToken，Token 过期后无法自动续期，也无法保活。"
                          + "建议用「会话 Cookie 导入」方式重新添加这些账号。",
                 Level = "warn",
             };

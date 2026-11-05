@@ -32,6 +32,10 @@ import urllib.request
 
 BASE = "https://api.trae.cn"
 
+# 9074 风控的尝试上限。原先 3 次、累计约 15 秒，在上午高峰几乎必然打满，
+# 让 workflow 长期标红——被误读成「部署失败」，实际是服务端限流。
+MAX_ATTEMPTS = 6
+
 
 def _post(path, headers, body=""):
     """POST 请求。非 2xx 不抛 HTTPError，而是以 (status, body) 正常返回，便于上层判断原因。"""
@@ -140,7 +144,8 @@ def notify_feishu(webhook, text):
 
 def beijing_now_str():
     """返回北京时间字符串（GitHub Actions 运行在 UTC，需 +8 小时）。"""
-    return (datetime.datetime.utcnow() + datetime.timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
+    beijing = datetime.timezone(datetime.timedelta(hours=8))
+    return datetime.datetime.now(beijing).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def iter_sessions():
@@ -171,7 +176,6 @@ def main():
 
     webhook = os.environ.get("FEISHU_WEBHOOK", "").strip()
     ok_names, fail_names = [], []
-    all_ok = True
 
     for index, session, device_id in accounts:
         # 多账号之间错开 3~6 秒随机间隔，降低请求密度，规避 9074「参与用户太多」风控
@@ -200,10 +204,12 @@ def main():
             body = result["body"]
             code = body.get("code", -1)
             # 9074「参与用户太多」= 设备号被风控标记；换全新设备号退避重试。
-            # 退避按 attempt²×3 秒递增（3s/12s），窗口内连续猛试只会持续命中风控。
+            # 退避按 3·2^(n-1) 秒递增（3/6/12/24/48），共 6 次尝试约 93 秒窗口。
+            # 原先只试 3 次、累计等 15 秒，上午高峰几乎必然打满——那正是云端
+            # workflow 长期标红的原因，不是账号或仓库部署的问题。
             attempt = 1
-            while code == 9074 and attempt < 3:
-                wait = attempt * attempt * 3
+            while code == 9074 and attempt < MAX_ATTEMPTS:
+                wait = min(3 * (2 ** (attempt - 1)), 60)
                 device_id = random_device_id()
                 attempt += 1
                 print("[%s] 命中风控 9074，%.1f 秒后换新设备号重试（第 %d 次）" % (name, wait, attempt))
@@ -234,11 +240,9 @@ def main():
                 reason = body.get("message") or ("HTTP %s" % result["http"])
                 print("[%s] 签到失败：%s" % (name, reason))
                 fail_names.append(name)
-                all_ok = False
         except Exception as e:
             print("[%s] 签到异常: %s" % (name, e))
             fail_names.append(name)
-            all_ok = False
 
     # 汇总一条飞书推送（无论成功/失败都汇总，webhook 为空则跳过）
     summary = ["Trae 多账号签到结果", "时间：%s" % beijing_now_str()]
@@ -249,8 +253,15 @@ def main():
     if webhook and (ok_names or fail_names):
         notify_feishu(webhook, "\n".join(summary))
 
-    if not all_ok:
+    # 只有全部账号都失败才算本次部署失败。部分失败（典型是某个账号撞上
+    # 9074 风控）不该让整个 workflow 标红——那会把「服务端限流」误报成
+    # 「部署坏了」，运维看不出区别。
+    if not ok_names:
+        print("全部账号签到失败")
         sys.exit(1)
+    if fail_names:
+        print("部分账号签到失败：%s（其余 %d 个账号已完成）" % ("、".join(fail_names), len(ok_names)))
+        return
     print("全部账号签到完成")
 
 

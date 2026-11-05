@@ -10,6 +10,7 @@ namespace TraeTools.Services.Login;
 /// WinForms 内嵌 WebView2 登录窗口（移植自 TraeCheckin.LoginForm）。
 /// 用户在此完成登录后，自动从 localStorage 读取 Cloud-IDE-Token，
 /// 并从 CookieManager 读取 X-Cloudide-Session（约 14 天有效）一并返回。
+/// Session 由主程序再换取 refreshToken（约 180 天），登录时长以此为准。
 ///
 /// debugCapture 为临时诊断模式：监听页面发出的全部 *.trae.cn JSON 接口（含 usage 页数据），
 /// 拿到 token 后不立即关闭，等待数据加载完成再把请求/响应全量落盘到
@@ -18,10 +19,11 @@ namespace TraeTools.Services.Login;
 public sealed class LoginHostForm : Form
 {
     private readonly string _userDataDir;
-    private readonly string? _initialToken;
+    private readonly string? _expectedUid;
     private readonly bool _debugCapture;
     private WebView2? _webView;
     private bool _tokenObtained;
+    private string? _lastRejectedReason;
 
     /// <summary>登录成功后获得的 Token；未取得或用户关闭为 null/空。</summary>
     public string? ResultToken { get; private set; }
@@ -35,6 +37,7 @@ public sealed class LoginHostForm : Form
     private System.Windows.Forms.Timer? _captureUiTimer;
     private System.Windows.Forms.Timer? _autoCloseTimer;
     private int _idleSeconds;
+    private Label? _statusLabel;
     private Label? _captureStatusLabel;
     private const int AutoCloseIdleSeconds = 15;   // 不再有新请求后等待秒数
     private const int MaxBodyBytes = 200 * 1024;   // 单个响应体截断上限
@@ -46,10 +49,10 @@ public sealed class LoginHostForm : Form
     private const string UsageUrl = "https://www.trae.cn/dashboard#usage";
     private TextBox? _addressBox;
 
-    public LoginHostForm(string userDataDir, string? initialToken, bool debugCapture = false)
+    public LoginHostForm(string userDataDir, string? expectedUid, bool debugCapture = false)
     {
         _userDataDir = userDataDir;
-        _initialToken = initialToken;
+        _expectedUid = expectedUid;
         _debugCapture = debugCapture;
 
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -68,14 +71,14 @@ public sealed class LoginHostForm : Form
 
         var top = new Panel { Dock = DockStyle.Top, Height = 44 };
         top.Controls.Add(btnClose);
-        var lbl = new Label
+        _statusLabel = new Label
         {
             Text = "请在弹出的窗口内登录 TRAE（手机号+验证码）。登录成功后本窗口会自动识别并关闭。",
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(10, 0, 0, 0)
         };
-        top.Controls.Add(lbl);
+        top.Controls.Add(_statusLabel);
 
         if (_debugCapture)
         {
@@ -194,9 +197,14 @@ public sealed class LoginHostForm : Form
                 "(function(){try{var t=localStorage.getItem('Cloud-IDE-Token');return t?t:'';}catch(e){return '';}})()");
             var token = result.Trim('"');
 
-            bool accepted = TraeCheckin.TokenUtils.ShouldAcceptNewToken(_initialToken, token);
-            if (!accepted && !_debugCapture) return;   // 抓包模式放宽：只要页面里有 token 就开始等待 usage 数据
             if (string.IsNullOrEmpty(token)) return;
+            if (!TraeCheckin.TokenUtils.ShouldAcceptNewToken(token, _expectedUid))
+            {
+                // 旧实现这里静默 return，用户只能盯着空窗口等 30 分钟超时；
+                // 现在把拒绝原因写到界面，让人知道该换账号还是该等。
+                ReportRejection(token);
+                if (!_debugCapture) return;
+            }
 
             string? session = null;
             try
@@ -236,6 +244,28 @@ public sealed class LoginHostForm : Form
             }
         }
         catch { /* 页面尚未就绪，等待下个时钟周期 */ }
+    }
+
+    /// <summary>
+    /// 把「读到了 token 但不能接受」的具体原因显示在窗口标题栏文字上。
+    /// 只在原因变化时刷新，避免 1.5 秒一次的轮询把界面刷成闪烁。
+    /// </summary>
+    private void ReportRejection(string token)
+    {
+        string reason;
+        var expiry = TraeCheckin.TokenUtils.TryGetExpiry(token);
+        var uid = TraeCheckin.TokenUtils.ParseAccountUid(token);
+        if (expiry != null && expiry.Value <= DateTime.Now)
+            reason = "页面里的登录态已过期，请重新登录。";
+        else if (!string.IsNullOrEmpty(_expectedUid) && !string.IsNullOrEmpty(uid)
+                 && !string.Equals(uid, _expectedUid, StringComparison.Ordinal))
+            reason = $"当前浏览器里是另一个账号（uid {uid}），本账号需要 uid {_expectedUid}。请点右上角退出后换目标账号登录。";
+        else
+            reason = "未能确认登录态，请稍候或重新登录。";
+
+        if (reason == _lastRejectedReason) return;
+        _lastRejectedReason = reason;
+        if (_statusLabel != null) _statusLabel.Text = reason;
     }
 
     // ---- 临时抓包逻辑 ----

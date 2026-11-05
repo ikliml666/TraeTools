@@ -2,9 +2,9 @@ using Avalonia.Controls;
 
 namespace TraeTools.Views;
 
-public partial class SwitchView : UserControl
+public partial class QoderView : UserControl
 {
-    public SwitchView()
+    public QoderView()
     {
         InitializeComponent();
     }

@@ -62,60 +62,62 @@
                 <!-- Brand -->
                 <StackPanel Grid.Row="1" Margin="20,2,20,16" Spacing="3">
                     <TextBlock Text="TraeTools" Foreground="{DynamicResource TextMainBrush}" FontSize="20" FontWeight="Bold" />
-                    <TextBlock Text="签到 · 账号切换 · 用量统计" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" />
+                    <TextBlock Text="签到 · Qoder · 云端签到" Foreground="{DynamicResource TextMutedBrush}" FontSize="11" />
                 </StackPanel>
 
                 <!-- Nav items -->
+                <!-- 高亮层独立于按钮：Classes 绑定在编译绑定下切换页面时不重算，改用 Panel 叠层 + IsVisible。 -->
                 <StackPanel Grid.Row="2" Margin="10,4" Spacing="3">
-                    <Button Classes="nav-item" Classes.nav-item-active="{Binding IsDashboardActive}"
-                            Command="{Binding NavigateCommand}" CommandParameter="dashboard">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Classes="nav-icon" Text="▦" FontSize="14" Width="20" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,10,0" />
-                            <TextBlock Classes="nav-label" Text="仪表盘" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                    <Button Classes="nav-item" Classes.nav-item-active="{Binding IsUsageActive}"
-                            Command="{Binding NavigateCommand}" CommandParameter="usage">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Classes="nav-icon" Text="Σ" FontSize="14" Width="20" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,10,0" />
-                            <TextBlock Classes="nav-label" Text="用量统计" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                    <Button Classes="nav-item" Classes.nav-item-active="{Binding IsCheckinActive}"
-                            Command="{Binding NavigateCommand}" CommandParameter="checkin">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Classes="nav-icon" Text="✓" FontSize="14" Width="20" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,10,0" />
-                            <TextBlock Classes="nav-label" Text="每日签到" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                    <Button Classes="nav-item" Classes.nav-item-active="{Binding IsSwitchActive}"
-                            Command="{Binding NavigateCommand}" CommandParameter="switch">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Classes="nav-icon" Text="⇄" FontSize="14" Width="20" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,10,0" />
-                            <TextBlock Classes="nav-label" Text="账号切换" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                    <Button Classes="nav-item" Classes.nav-item-active="{Binding IsCloudActive}"
-                            Command="{Binding NavigateCommand}" CommandParameter="cloud">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Classes="nav-icon" Text="☁" FontSize="14" Width="20" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,10,0" />
-                            <TextBlock Classes="nav-label" Text="云端签到" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                    <Button Classes="nav-item" Classes.nav-item-active="{Binding IsLogActive}"
-                            Command="{Binding NavigateCommand}" CommandParameter="log">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Classes="nav-icon" Text="≡" FontSize="14" Width="20" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,10,0" />
-                            <TextBlock Classes="nav-label" Text="运行日志" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                    <Button Classes="nav-item" Classes.nav-item-active="{Binding IsSettingsActive}"
-                            Command="{Binding NavigateCommand}" CommandParameter="settings">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Classes="nav-icon" Text="⚙" FontSize="14" Width="20" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,10,0" />
-                            <TextBlock Classes="nav-label" Text="设置" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
+                    <Panel>
+                        <Border Background="{DynamicResource AccentBrush}" CornerRadius="10"
+                                IsVisible="{Binding IsCheckinActive}" />
+                        <Button Classes="nav-item" Command="{Binding NavigateCommand}" CommandParameter="checkin">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Classes="nav-icon" Text="✓" FontSize="14" Width="20" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                <TextBlock Classes="nav-label" Text="每日签到" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </Panel>
+                    <Panel>
+                        <Border Background="{DynamicResource AccentBrush}" CornerRadius="10"
+                                IsVisible="{Binding IsCloudActive}" />
+                        <Button Classes="nav-item" Command="{Binding NavigateCommand}" CommandParameter="cloud">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Classes="nav-icon" Text="☁" FontSize="14" Width="20" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                <TextBlock Classes="nav-label" Text="云端签到" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </Panel>
+                    <Panel>
+                        <Border Background="{DynamicResource AccentBrush}" CornerRadius="10"
+                                IsVisible="{Binding IsQoderActive}" />
+                        <Button Classes="nav-item" Command="{Binding NavigateCommand}" CommandParameter="qoder">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Classes="nav-icon" Text="Q" FontSize="14" Width="20" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                <TextBlock Classes="nav-label" Text="Qoder" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </Panel>
+                    <Panel>
+                        <Border Background="{DynamicResource AccentBrush}" CornerRadius="10"
+                                IsVisible="{Binding IsLogActive}" />
+                        <Button Classes="nav-item" Command="{Binding NavigateCommand}" CommandParameter="log">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Classes="nav-icon" Text="≡" FontSize="14" Width="20" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                <TextBlock Classes="nav-label" Text="运行日志" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </Panel>
+                    <Panel>
+                        <Border Background="{DynamicResource AccentBrush}" CornerRadius="10"
+                                IsVisible="{Binding IsSettingsActive}" />
+                        <Button Classes="nav-item" Command="{Binding NavigateCommand}" CommandParameter="settings">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Classes="nav-icon" Text="⚙" FontSize="14" Width="20" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                <TextBlock Classes="nav-label" Text="设置" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </Panel>
                 </StackPanel>
 
                 <!-- Version footer -->
@@ -165,10 +167,15 @@
                         </ComboBox>
                         <Button Grid.Column="2" Classes="btn" Content="切换" Margin="8,0,0,0"
                                 VerticalAlignment="Center"
+                                IsEnabled="{Binding TopCanSwitch}"
                                 Command="{Binding SwitchToSelectedAccountCommand}" />
-                        <TextBlock Grid.Column="3" Text="{Binding TopActiveAccountText}" Classes="page-subtitle"
-                                   VerticalAlignment="Center" Margin="14,0,0,0"
-                                   TextTrimming="CharacterEllipsis" />
+                        <StackPanel Grid.Column="3" Margin="14,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding TopActiveAccountText}" Classes="page-subtitle"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding TopSwitchHint}" Classes="page-subtitle"
+                                       Foreground="{DynamicResource TextMutedBrush}" FontSize="11"
+                                       TextTrimming="CharacterEllipsis" IsVisible="{Binding TopSwitchHint, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        </StackPanel>
                     </Grid>
                 </Border>
 

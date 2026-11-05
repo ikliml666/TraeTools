@@ -10,10 +10,17 @@ public class TraeAccount
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     /// <summary>用户备注名（如「主号 / 小号」）；为空时 UI 显示「账号 n」。</summary>
     public string? Name { get; set; }
-    /// <summary>JWT（约 8 小时，失效时用 Session 静默换新）。</summary>
+    /// <summary>JWT。走 refreshToken 续期时有效 14 天，走 Session 换新时 8 小时。</summary>
     public string? Token { get; set; }
     /// <summary>X-Cloudide-Session 会话 Cookie 值（约 14 天）。</summary>
     public string? Session { get; set; }
+    /// <summary>
+    /// OAuth refreshToken（约 180 天）。由 Session 调 GetRefreshToken 换得，
+    /// 之后每次用 ExchangeToken 换出新的 access token。这是登录时长的主要来源。
+    /// </summary>
+    public string? RefreshToken { get; set; }
+    /// <summary>RefreshToken 的到期时刻；null 表示尚未取得或未知。</summary>
+    public DateTime? RefreshExpiresAt { get; set; }
     /// <summary>x-device-id（16 位数字，风控关键），每账号独立。</summary>
     public string DeviceId { get; set; } = "";
     /// <summary>

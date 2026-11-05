@@ -64,7 +64,7 @@ public partial class LoginWindow : Window
                 "TraeTools", "WebView", "account_" + (_account.Id.Length > 12 ? _account.Id[..12] : _account.Id));
 
             // 接口探索已完成；false=正常登录（自动识别并关闭窗口）。需要再抓包时改为 true
-            var result = await LoginHostClient.RunAsync(webViewDir, _account.Token, debugCapture: false);
+            var result = await LoginHostClient.RunAsync(webViewDir, _account.AccountUid, debugCapture: false);
 
             if (result == null)
             {
@@ -78,6 +78,14 @@ public partial class LoginWindow : Window
             var uid = TokenUtils.ParseAccountUid(result.Token);
             if (!string.IsNullOrEmpty(uid)) _account.AccountUid = uid;
             MainViewModel.AppConfig?.Save();
+
+            // 登录态刚建立，顺手换 refreshToken（约 180 天），避免只拿到 8 小时的 JWT
+            if (!string.IsNullOrEmpty(result.Session) && MainViewModel.CheckinApi != null)
+            {
+                var name = string.IsNullOrEmpty(_account.Name) ? _account.Id[..6] : _account.Name;
+                await AccountHelpers.TryUpgradeToRefreshTokenAsync(
+                    _account, MainViewModel.CheckinApi, name, MainViewModel.AppConfig!);
+            }
             Close(true);
         }
         catch (Exception ex)
@@ -104,10 +112,9 @@ public partial class LoginWindow : Window
             StatusText.Text = "请先粘贴 Cloud-IDE-Token";
             return;
         }
-        var initial = _account?.Token;
-        if (!TokenUtils.ShouldAcceptNewToken(initial, pasted))
+        if (!TokenUtils.ShouldAcceptNewToken(pasted, _account?.AccountUid))
         {
-            StatusText.Text = "Token 无效（长度不足或与当前账号相同），请重新复制";
+            StatusText.Text = "Token 无效（已过期、长度不足，或属于另一个账号），请重新复制";
             return;
         }
         if (_account == null)
@@ -158,7 +165,7 @@ public partial class LoginWindow : Window
                 AltStatus.Text = result.Message;
                 return;
             }
-            ApplyCredential(result.Token, result.Session, null, result.Message);
+            await ApplyCredential(result.Token, result.Session, null, result.Message);
         }
         catch (Exception ex)
         {
@@ -232,7 +239,7 @@ public partial class LoginWindow : Window
             var note = accounts.Count > 1
                 ? $"{message}；本窗口只能使用其中一个，已取 {(pick.AccountUid ?? pick.Id)}"
                 : message;
-            ApplyCredential(pick.Token, pick.Session, pick.DeviceId, note);
+            await ApplyCredential(pick.Token, pick.Session, pick.DeviceId, note);
         }
         catch (Exception ex)
         {
@@ -260,7 +267,7 @@ public partial class LoginWindow : Window
                 AltStatus.Text = result.Message;
                 return;
             }
-            ApplyCredential(result.Token, result.Session, result.DeviceId,
+            await ApplyCredential(result.Token, result.Session, result.DeviceId,
                 result.Message + (string.IsNullOrEmpty(result.Source) ? "" : $"（来源：{result.Source}）"));
         }
         catch (Exception ex)
@@ -279,7 +286,7 @@ public partial class LoginWindow : Window
     /// 设备号处理：只在「本机其它账号都没用过」时才写入 —— 多账号共用同一设备号会被
     /// Trae 风控判为同一台机器并返回 9074，因此冲突时保留账号原有设备号。
     /// </summary>
-    private void ApplyCredential(string? token, string? session, string? deviceId, string note)
+    private async System.Threading.Tasks.Task ApplyCredential(string? token, string? session, string? deviceId, string note)
     {
         try
         {
@@ -307,6 +314,15 @@ public partial class LoginWindow : Window
             _account.TokenUpdatedAt = DateTime.Now;
             var uid = TokenUtils.ParseAccountUid(token ?? _account.Token);
             if (!string.IsNullOrEmpty(uid)) _account.AccountUid = uid;
+
+            // 拿到会话就顺手换 refreshToken（约 180 天）；失败只影响续期长度，不影响本次导入
+            if (!string.IsNullOrEmpty(_account.Session) && MainViewModel.CheckinApi != null
+                && MainViewModel.AppConfig != null)
+            {
+                var name = string.IsNullOrEmpty(_account.Name) ? _account.Id[..6] : _account.Name;
+                await AccountHelpers.TryUpgradeToRefreshTokenAsync(
+                    _account, MainViewModel.CheckinApi, name, MainViewModel.AppConfig);
+            }
 
             MainViewModel.AppConfig?.Save();
             AltStatus.Text = note;

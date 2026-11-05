@@ -10,13 +10,27 @@ public static class TokenUtils
 {
     /// <summary>
     /// 判断是否接受当前读到的 token。
-    /// 仅当「当前 token 有效（非空且长度足够）」且「与初始 token 不同」时返回 true，
-    /// 即真正重新登录产生了新 token。
+    ///
+    /// 判据是「token 未过期且属于目标账号」，**不是**「与初始 token 不同」。
+    /// 旧判据会让重新登录必然卡死：同一账号的 WebView2 用户目录是复用的，
+    /// 页面恢复登录态后写回 localStorage 的仍是同一个 token，
+    /// 于是「必须不同」永远不成立，窗口一直空转到 30 分钟超时。
+    ///
+    /// <paramref name="expectedAccountUid"/> 为空表示首次登录（没有可比对的账号），
+    /// 此时只校验有效期；非空时额外拒绝「读到的是别的账号残留登录态」。
     /// </summary>
-    public static bool ShouldAcceptNewToken(string? initialToken, string? currentToken)
+    public static bool ShouldAcceptNewToken(string? currentToken, string? expectedAccountUid)
     {
         if (string.IsNullOrEmpty(currentToken) || currentToken.Length < 40) return false;
-        return !string.Equals(initialToken, currentToken, StringComparison.Ordinal);
+        var expiry = TryGetExpiry(currentToken);
+        if (expiry != null && expiry.Value <= DateTime.Now) return false;
+        if (!string.IsNullOrEmpty(expectedAccountUid))
+        {
+            var uid = ParseAccountUid(currentToken);
+            if (!string.IsNullOrEmpty(uid) && !string.Equals(uid, expectedAccountUid, StringComparison.Ordinal))
+                return false;
+        }
+        return true;
     }
 
     /// <summary>
