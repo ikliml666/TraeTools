@@ -23,7 +23,10 @@ public static class AccountHelpers
         acc.DeviceId = id;
     }
 
-    /// <summary>校验/换新 Token：失效时用 X-Cloudide-Session 静默换新并保存；返回是否持有可用 token。</summary>
+    /// <summary>
+    /// 校验/换新 Token。优先级：refreshToken 换新（约 180 天链路）→ Session 换新（约 14 天链路）。
+    /// 返回是否持有可用 token。
+    /// </summary>
     public static async Task<bool> EnsureValidTokenAsync(TraeAccount acc)
     {
         var cfg = MainViewModel.AppConfig;
@@ -31,14 +34,42 @@ public static class AccountHelpers
         var name = string.IsNullOrEmpty(acc.Name) ? (acc.Id.Length > 6 ? acc.Id[..6] : acc.Id) : acc.Name!;
         if (cfg == null || api == null) return false;
 
+        // 有 Session 但还没有 refreshToken：立刻升级，不等 Token 失效。
+        // Token 与 Session 同为 14 天到期，等到 Token 失效时 Session 也已过期，届时换不到了。
+        if (string.IsNullOrEmpty(acc.RefreshToken) && !string.IsNullOrEmpty(acc.Session))
+            await TryUpgradeToRefreshTokenAsync(acc, api, name, cfg);
+
         if (!string.IsNullOrEmpty(acc.Token))
         {
             var st = await api.GetStatusAsync(acc.Token, acc.DeviceId);
             if (st != null && st.code == 0) return true;
-            CheckinLog(name, $"Token 已失效（status code={st?.code ?? -1}），尝试 Session 换新");
+            CheckinLog(name, $"Token 已失效（status code={st?.code ?? -1}），尝试续期");
         }
 
-        // token 失效：用会话 Cookie 静默换新（无需重新登录）
+        // 首选 refreshToken：一次换取 14 天 access token，refreshToken 自身约 180 天
+        if (!string.IsNullOrEmpty(acc.RefreshToken) &&
+            (acc.RefreshExpiresAt == null || acc.RefreshExpiresAt > DateTime.Now))
+        {
+            var refreshed = await api.ExchangeTokenAsync(acc.RefreshToken);
+            if (refreshed?.Token != null)
+            {
+                acc.Token = refreshed.Token;
+                acc.AccountUid = TokenUtils.ParseAccountUid(refreshed.Token) ?? acc.AccountUid;
+                acc.TokenUpdatedAt = DateTime.Now;
+                // 服务端轮换时才覆盖；未轮换则保留旧 refreshToken
+                if (refreshed.RefreshToken != null)
+                {
+                    acc.RefreshToken = refreshed.RefreshToken;
+                    acc.RefreshExpiresAt = refreshed.RefreshExpiresAt;
+                }
+                try { cfg.Save(); } catch { /* 忽略 */ }
+                CheckinLog(name, $"refreshToken 换新 Token 成功，有效期至 {refreshed.TokenExpiresAt:yyyy-MM-dd HH:mm}");
+                return true;
+            }
+            CheckinLog(name, $"refreshToken 换新失败：{api.LastError}");
+        }
+
+        // 回落 Session：换取 8 小时 JWT
         if (!string.IsNullOrEmpty(acc.Session))
         {
             var renewed = await api.GetUserTokenAsync(acc.Session);
@@ -49,6 +80,8 @@ public static class AccountHelpers
                 acc.TokenUpdatedAt = DateTime.Now;
                 try { cfg.Save(); } catch { /* 忽略 */ }
                 CheckinLog(name, $"Session 换新 Token 成功，新 AccountUid={acc.AccountUid}");
+                // 顺手把 Session 升级成 refreshToken，下次就走 180 天链路
+                await TryUpgradeToRefreshTokenAsync(acc, api, name, cfg);
                 return true;
             }
             CheckinLog(name, "Session 换新 Token 失败（返回为空）");
@@ -58,6 +91,28 @@ public static class AccountHelpers
             CheckinLog(name, "Token 失效且无 Session，无法自动换新");
         }
         return false;
+    }
+
+    /// <summary>
+    /// 用 Session 换 refreshToken 并写入账号（幂等：已有未过期 refreshToken 时跳过）。
+    /// 失败不影响调用方，只记日志。
+    /// </summary>
+    public static async Task TryUpgradeToRefreshTokenAsync(TraeAccount acc, TraeApiClient api, string name, AppConfig cfg)
+    {
+        if (!string.IsNullOrEmpty(acc.RefreshToken) &&
+            (acc.RefreshExpiresAt == null || acc.RefreshExpiresAt > DateTime.Now)) return;
+        if (string.IsNullOrEmpty(acc.Session)) return;
+
+        var got = await api.GetRefreshTokenAsync(acc.Session);
+        if (got?.RefreshToken == null)
+        {
+            CheckinLog(name, $"Session 换 refreshToken 失败：{api.LastError}");
+            return;
+        }
+        acc.RefreshToken = got.RefreshToken;
+        acc.RefreshExpiresAt = got.RefreshExpiresAt;
+        try { cfg.Save(); } catch { /* 忽略 */ }
+        CheckinLog(name, $"已取得 refreshToken，有效期至 {got.RefreshExpiresAt:yyyy-MM-dd HH:mm}");
     }
 
     /// <summary>

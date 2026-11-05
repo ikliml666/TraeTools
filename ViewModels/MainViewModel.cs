@@ -167,6 +167,10 @@ public partial class MainViewModel : ViewModelBase
         // 首次启动即按激活账号刷新仪表盘状态/积分/奖励（否则启动时只显示旧缓存，状态不更新）
         _ = _dashboard.RefreshAllAsync();
 
+        // 启动时把所有账号的 Session 一次性升级成 refreshToken（幂等，已有未过期的会跳过）。
+        // 不做这一步的话，只有被刷新过的账号能拿到 180 天链路，其余仍在 14 天后失效。
+        _ = UpgradeAllRefreshTokensAsync();
+
         // 启动日志：记录账号概况，便于排查问题
         try
         {
@@ -182,6 +186,19 @@ public partial class MainViewModel : ViewModelBase
             }
         }
         catch { /* 启动日志失败不影响 */ }
+    }
+
+    /// <summary>启动时把全部账号的 Session 升级成 refreshToken，让每个账号都拿到 180 天链路。</summary>
+    private static async Task UpgradeAllRefreshTokensAsync()
+    {
+        var cfg = AppConfig;
+        var api = CheckinApi;
+        if (cfg == null || api == null) return;
+        foreach (var acc in cfg.Accounts.ToList())
+        {
+            var name = string.IsNullOrEmpty(acc.Name) ? (acc.Id.Length > 6 ? acc.Id[..6] : acc.Id) : acc.Name!;
+            await AccountHelpers.TryUpgradeToRefreshTokenAsync(acc, api, name, cfg);
+        }
     }
 
     public bool IsDashboardActive => CurrentPageKey == "dashboard";

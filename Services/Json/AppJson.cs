@@ -60,6 +60,9 @@ public static class AppJsonIndented
 [JsonSerializable(typeof(GitHubSecretPayload))]
 [JsonSerializable(typeof(GitHubActionsPermissionPayload))]
 [JsonSerializable(typeof(GitHubWorkflowDispatchPayload))]
+// refreshToken 续期链的请求体（Session→refreshToken、refreshToken→token）
+[JsonSerializable(typeof(TraeRefreshTokenRequest))]
+[JsonSerializable(typeof(TraeExchangeTokenRequest))]
 // ===== 本次 PR 追加：推送渠道的 HTTP 请求体 =====
 // 这三种渠道消息体原先用匿名类型 + 反射 JsonSerializer 构造，在 full 裁剪 / NativeAOT 下
 // 既会产生 IL2026 警告，也会在运行时静默丢字段。改为具名类型 + 此处登记后完全走源生成。

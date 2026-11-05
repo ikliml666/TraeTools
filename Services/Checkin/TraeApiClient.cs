@@ -29,6 +29,9 @@ public class TraeApiClient
 {
     private const string BaseUrl = "https://api.trae.cn";
 
+    /// <summary>网页端 OAuth client_id（GetRefreshToken / ExchangeToken 共用）。</summary>
+    private const string OAuthClientId = "ono9krqynydwx5";
+
     private readonly HttpClient _http;
 
     public string? LastError { get; private set; }
@@ -98,6 +101,105 @@ public class TraeApiClient
             LastError = ex.Message;
             return null;
         }
+    }
+
+    /// <summary>
+    /// 用 X-Cloudide-Session 会话 Cookie 换取 refreshToken（网页端 OAuth 接口）。
+    /// 返回的 refreshToken 约 180 天有效，是登录时长的主要来源；失败返回 null。
+    /// </summary>
+    public async Task<RefreshTokenResult?> GetRefreshTokenAsync(string session)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, BaseUrl + "/cloudide/api/v3/trae/oauth/GetRefreshToken");
+            req.Headers.TryAddWithoutValidation("Cookie", "X-Cloudide-Session=" + session);
+            req.Headers.TryAddWithoutValidation("Referer", "https://www.trae.cn/");
+            req.Headers.TryAddWithoutValidation("Origin", "https://www.trae.cn");
+            req.Content = new StringContent(
+                AppJson.Serialize(new TraeRefreshTokenRequest { ClientId = OAuthClientId }),
+                Encoding.UTF8, "application/json");
+            using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+            var json = await resp.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("Result", out var result) ||
+                result.ValueKind != JsonValueKind.Object ||
+                !result.TryGetProperty("RefreshToken", out var rt) ||
+                rt.ValueKind != JsonValueKind.String)
+            {
+                LastError = "GetRefreshToken 响应缺少 Result.RefreshToken";
+                return null;
+            }
+            return new RefreshTokenResult
+            {
+                RefreshToken = rt.GetString()!,
+                RefreshExpiresAt = ReadExpireAt(result, "RefreshExpireAt"),
+            };
+        }
+        catch (Exception ex)
+        {
+            LastError = ex.Message;
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 用 refreshToken 换取新的 access token（网页端简化契约：无 DeviceInfo / DeviceProof）。
+    /// 响应可能带回轮换后的 refreshToken，调用方应一并更新。
+    /// </summary>
+    public async Task<RefreshTokenResult?> ExchangeTokenAsync(string refreshToken)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, BaseUrl + "/cloudide/api/v3/trae/oauth/ExchangeToken");
+            // 网页端契约：ClientSecret 固定 "-"，UserID 留空，不带设备证明
+            req.Content = new StringContent(
+                AppJson.Serialize(new TraeExchangeTokenRequest
+                {
+                    ClientId = OAuthClientId,
+                    RefreshToken = refreshToken,
+                }),
+                Encoding.UTF8, "application/json");
+            using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+            var json = await resp.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("Result", out var result) ||
+                result.ValueKind != JsonValueKind.Object ||
+                !result.TryGetProperty("Token", out var tok) ||
+                tok.ValueKind != JsonValueKind.String)
+            {
+                LastError = "ExchangeToken 响应缺少 Result.Token";
+                return null;
+            }
+            var rotated = GetString(result, "RefreshToken");
+            return new RefreshTokenResult
+            {
+                Token = tok.GetString(),
+                // 响应未带 RefreshToken 表示服务端未轮换，调用方保留旧值
+                RefreshToken = string.IsNullOrEmpty(rotated) ? null : rotated,
+                RefreshExpiresAt = ReadExpireAt(result, "RefreshExpireAt"),
+                TokenExpiresAt = ReadExpireAt(result, "TokenExpireAt"),
+            };
+        }
+        catch (Exception ex)
+        {
+            LastError = ex.Message;
+            return null;
+        }
+    }
+
+    /// <summary>把毫秒级 Unix 时间戳字段读成 DateTime；缺失或非法返回 null。</summary>
+    private static DateTime? ReadExpireAt(JsonElement el, string name)
+    {
+        if (!el.TryGetProperty(name, out var v)) return null;
+        long ms;
+        if (v.ValueKind == JsonValueKind.Number) { if (!v.TryGetInt64(out ms)) return null; }
+        else if (v.ValueKind == JsonValueKind.String)
+        {
+            if (!long.TryParse(v.GetString(), out ms)) return null;
+        }
+        else return null;
+        if (ms <= 0) return null;
+        return DateTimeOffset.FromUnixTimeMilliseconds(ms).ToLocalTime().DateTime;
     }
 
     /// <summary>查询剩余积分（汇总所有资格包的剩余额度）。</summary>
@@ -245,6 +347,17 @@ public class TraeApiClient
 
     private static string? GetString(JsonElement el, string name)
         => el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+}
+
+/// <summary>refreshToken / ExchangeToken 接口的结果。</summary>
+public sealed class RefreshTokenResult
+{
+    /// <summary>新 access token（仅 ExchangeToken 返回）。</summary>
+    public string? Token { get; set; }
+    /// <summary>refreshToken；ExchangeToken 未轮换时为 null。</summary>
+    public string? RefreshToken { get; set; }
+    public DateTime? RefreshExpiresAt { get; set; }
+    public DateTime? TokenExpiresAt { get; set; }
 }
 
 /// <summary>Trae 账号资料（GetUserInfo 结果）。</summary>

@@ -16,7 +16,7 @@ public class AppConfig
     /// <summary>敏感字段加密版本标记："dpapi-v1"=已用 DPAPI 加密；null=旧版明文（等待迁移）。</summary>
     public string? SecretsVaultVersion { get; set; }
     public string? Token { get; set; }
-    /// <summary>X-Cloudide-Session 会话 Cookie 值（约 14 天有效），用于 token 失效时静默换新。</summary>
+    /// <summary>X-Cloudide-Session 会话 Cookie 值（约 14 天有效），用于换取 refreshToken 与 token 静默换新。</summary>
     public string? Session { get; set; }
     public DateTime? TokenUpdatedAt { get; set; }
     /// <summary>GitHub OAuth 设备码授权得到的 access_token（用于云端自动签到部署）。</summary>
@@ -317,6 +317,8 @@ public class AppConfig
                 Name = a.Name,
                 Token = EncryptSecret(a.Token),
                 Session = EncryptSecret(a.Session),
+                RefreshToken = EncryptSecret(a.RefreshToken),
+                RefreshExpiresAt = a.RefreshExpiresAt,
                 // 同 DeviceId：非可空，加密失败时保留明文而不是赋 null
                 DeviceId = EncryptSecret(a.DeviceId) ?? a.DeviceId,
                 AccountUid = a.AccountUid,
@@ -354,6 +356,7 @@ public class AppConfig
         {
             a.Token = DecryptSecret(a.Token);
             a.Session = DecryptSecret(a.Session);
+            a.RefreshToken = DecryptSecret(a.RefreshToken);
             var aDev = DecryptSecret(a.DeviceId);
             if (!string.IsNullOrEmpty(aDev)) a.DeviceId = aDev;
         }

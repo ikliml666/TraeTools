@@ -50,3 +50,18 @@ internal sealed class GitHubWorkflowDispatchPayload
 {
     [JsonPropertyName("ref")] public string Ref { get; set; } = "main";
 }
+
+/// <summary>GetRefreshToken 体：{ clientID }。</summary>
+internal sealed class TraeRefreshTokenRequest
+{
+    [JsonPropertyName("clientID")] public string ClientId { get; set; } = "";
+}
+
+/// <summary>网页端 ExchangeToken 体：ClientSecret 固定 "-"，UserID 留空，不带设备证明。</summary>
+internal sealed class TraeExchangeTokenRequest
+{
+    [JsonPropertyName("ClientID")] public string ClientId { get; set; } = "";
+    [JsonPropertyName("RefreshToken")] public string RefreshToken { get; set; } = "";
+    [JsonPropertyName("ClientSecret")] public string ClientSecret { get; set; } = "-";
+    [JsonPropertyName("UserID")] public string UserId { get; set; } = "";
+}

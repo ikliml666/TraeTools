@@ -39,18 +39,20 @@ public static class LoginHostClient
 
     /// <summary>
     /// 启动宿主并等待其结束，返回取得的凭据；用户取消或超时返回 null。
-    /// initialToken 用于让宿主忽略 localStorage 里的残留旧 token（只有"新 token"才被接受）。
+    /// <paramref name="expectedAccountUid"/> 是目标账号的 uid（不是 token）：
+    /// 宿主只接受属于该账号且未过期的 token，传 null 表示首次登录、不校验账号。
+    /// 传 uid 而非 token，既避免把 token 明文写进命令行，也让「重新登录同一账号」不再被误判为失败。
     /// </summary>
     public static Task<LoginResult?> RunAsync(
-        string userDataDir, string? initialToken, bool debugCapture = false, TimeSpan? timeout = null)
-        => RunCoreAsync(userDataDir, initialToken, debugCapture, timeout, null);
+        string userDataDir, string? expectedAccountUid, bool debugCapture = false, TimeSpan? timeout = null)
+        => RunCoreAsync(userDataDir, expectedAccountUid, debugCapture, timeout, null);
 
     /// <summary>
     /// 核心实现。<paramref name="extraArgs"/> 供独立环境验证注入 <c>--selftest</c>（不显示窗口、直接回写结果），
     /// 生产路径始终传 null。
     /// </summary>
     internal static async Task<LoginResult?> RunCoreAsync(
-        string userDataDir, string? initialToken, bool debugCapture, TimeSpan? timeout, IEnumerable<string>? extraArgs)
+        string userDataDir, string? expectedAccountUid, bool debugCapture, TimeSpan? timeout, IEnumerable<string>? extraArgs)
     {
         var exe = ResolveHelperPath()
             ?? throw new FileNotFoundException("未找到登录宿主程序：" + HelperFileName);
@@ -63,10 +65,10 @@ public static class LoginHostClient
             psi.ArgumentList.Add(userDataDir);
             psi.ArgumentList.Add("--out");
             psi.ArgumentList.Add(outFile);
-            if (!string.IsNullOrEmpty(initialToken))
+            if (!string.IsNullOrEmpty(expectedAccountUid))
             {
-                psi.ArgumentList.Add("--initial-token");
-                psi.ArgumentList.Add(initialToken!);
+                psi.ArgumentList.Add("--expected-uid");
+                psi.ArgumentList.Add(expectedAccountUid!);
             }
             if (debugCapture) psi.ArgumentList.Add("--debug-capture");
             if (extraArgs != null)
