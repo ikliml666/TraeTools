@@ -51,7 +51,6 @@ public static class AppJsonIndented
 
 /// <summary>紧凑 JSON 上下文：对外 API 请求体 / 响应体、JSONL 记录。</summary>
 [JsonSourceGenerationOptions(WriteIndented = false)]
-[JsonSerializable(typeof(UsageSessionRecord))]
 [JsonSerializable(typeof(CheckinStatus))]
 [JsonSerializable(typeof(GitHubDeviceCode))]
 [JsonSerializable(typeof(FeishuTextMessage))]
@@ -70,6 +69,8 @@ public static class AppJsonIndented
 [JsonSerializable(typeof(TelegramSendPayload))]
 // 账号备份的明文负载（外层已 AES-GCM 加密，故用紧凑输出；其中含 List<TraeAccount>，由生成器递归展开）
 [JsonSerializable(typeof(AccountBackup.Payload))]
+// Qoder 账号库容器（独立文件，不与 Trae 账号混存）
+[JsonSerializable(typeof(TraeTools.Services.Qoder.QoderStoreDocument))]
 internal sealed partial class CompactJsonContext : JsonSerializerContext
 {
 }

@@ -7,30 +7,29 @@ using CommunityToolkit.Mvvm.Input;
 using TraeCheckin;
 using TraeSwitch.Services;
 using TraeTools.Services;
-using TraeTools.Services.Usage;
+using TraeTools.Services.Qoder;
 
 namespace TraeTools.ViewModels;
 
 public partial class MainViewModel : ViewModelBase
 {
-    private readonly DashboardViewModel _dashboard;
     private readonly CheckinViewModel _checkin;
     private readonly SwitchViewModel _switch;
     private readonly CloudViewModel _cloud;
+    private readonly QoderViewModel _qoder;
     private readonly SettingsViewModel _settings;
-    private readonly UsageViewModel _usage;
     private readonly LogViewModel _log;
 
     [ObservableProperty]
     private ViewModelBase? _currentPage;
 
     [ObservableProperty]
-    private string _currentPageKey = "dashboard";
+    private string _currentPageKey = "checkin";
 
     // 全局服务容器：页面 VM 通过静态属性访问
     public static AppConfig? AppConfig;
     public static TraeApiClient? CheckinApi;
-    public static TraeUsageClient? UsageApi;
+    public static QoderApiClient? QoderApi;
     public static SettingsStore? SwitchSettings;
     public static VaultService? Vault;
     public static GitHubApiClient? GitHubApi;
@@ -62,11 +61,11 @@ public partial class MainViewModel : ViewModelBase
 
         try
         {
-            UsageApi = new TraeUsageClient();
+            QoderApi = new QoderApiClient();
         }
         catch
         {
-            UsageApi = null;
+            QoderApi = null;
         }
 
         try
@@ -126,10 +125,10 @@ public partial class MainViewModel : ViewModelBase
         }
 
         Instance = this;
-        _dashboard = new DashboardViewModel();
         _checkin = new CheckinViewModel();
         _switch = new SwitchViewModel();
         _cloud = new CloudViewModel();
+        _qoder = new QoderViewModel();
         _settings = new SettingsViewModel();
         _settings.LoadExtendedSettings();   // 载入本 PR 新增的推送/日志/主题/设备号配置
         // 设置页下拉改主题时，标题栏 ☾/☀ 图标同步刷新
@@ -138,34 +137,20 @@ public partial class MainViewModel : ViewModelBase
             if (e.PropertyName == nameof(SettingsViewModel.ThemeMode))
                 OnPropertyChanged(nameof(IsDarkMode));
         };
-        _usage = new UsageViewModel();
         _log = new LogViewModel();
 
-        _dashboard.NavigateRequested += p => Navigate(p);
         _checkin.NavigateRequested += p => Navigate(p);
         _switch.NavigateRequested += p => Navigate(p);
         _cloud.NavigateRequested += p => Navigate(p);
+        _qoder.NavigateRequested += p => Navigate(p);
         _settings.NavigateRequested += p => Navigate(p);
-        _usage.NavigateRequested += p => Navigate(p);
         _log.NavigateRequested += p => Navigate(p);
 
-        // 顶栏账号下拉：默认选中当前激活账号（账号列表由 SwitchViewModel 在构造时载入）
-        try
-        {
-            var cfg0 = AppConfig;
-            var active = cfg0?.Accounts.FirstOrDefault(a => a.Id == cfg0.ActiveAccountId)
-                         ?? cfg0?.Accounts.FirstOrDefault();
-            if (active != null)
-                _switch.SelectedAccount = _switch.Accounts.FirstOrDefault(a => a.Id == active.Id);
-            RefreshTopBar();
-        }
-        catch { /* 顶栏初始化失败不影响主流程 */ }
+        // 顶栏账号下拉：以 Trae 账号为真源填充，并落在当前激活账号上
+        RefreshTopBar();
 
-        CurrentPage = _dashboard;
-        CurrentPageKey = "dashboard";
-
-        // 首次启动即按激活账号刷新仪表盘状态/积分/奖励（否则启动时只显示旧缓存，状态不更新）
-        _ = _dashboard.RefreshAllAsync();
+        CurrentPage = _checkin;
+        CurrentPageKey = "checkin";
 
         // 启动时把所有账号的 Session 一次性升级成 refreshToken（幂等，已有未过期的会跳过）。
         // 不做这一步的话，只有被刷新过的账号能拿到 180 天链路，其余仍在 14 天后失效。
@@ -201,24 +186,20 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    public bool IsDashboardActive => CurrentPageKey == "dashboard";
     public bool IsCheckinActive => CurrentPageKey == "checkin";
-    public bool IsSwitchActive => CurrentPageKey == "switch";
     public bool IsCloudActive => CurrentPageKey == "cloud";
+    public bool IsQoderActive => CurrentPageKey == "qoder";
     public bool IsSettingsActive => CurrentPageKey == "settings";
-    public bool IsUsageActive => CurrentPageKey == "usage";
     public bool IsLogActive => CurrentPageKey == "log";
 
     /// <summary>标题栏显示的当前页面名。</summary>
     public string CurrentPageTitle => CurrentPageKey switch
     {
-        "usage" => "用量统计",
-        "checkin" => "每日签到",
-        "switch" => "账号切换",
         "cloud" => "云端签到",
+        "qoder" => "Qoder",
         "log" => "运行日志",
         "settings" => "设置",
-        _ => "仪表盘",
+        _ => "每日签到",
     };
 
     /// <summary>标题栏 ☾/☀ 图标状态：跟随当前生效主题实时变化（设置页下拉改动也会同步）。</summary>
@@ -234,36 +215,31 @@ public partial class MainViewModel : ViewModelBase
 
     partial void OnCurrentPageKeyChanged(string value)
     {
-        OnPropertyChanged(nameof(IsDashboardActive));
         OnPropertyChanged(nameof(IsCheckinActive));
-        OnPropertyChanged(nameof(IsSwitchActive));
         OnPropertyChanged(nameof(IsCloudActive));
+        OnPropertyChanged(nameof(IsQoderActive));
         OnPropertyChanged(nameof(IsSettingsActive));
-        OnPropertyChanged(nameof(IsUsageActive));
         OnPropertyChanged(nameof(IsLogActive));
         OnPropertyChanged(nameof(CurrentPageTitle));
     }
 
-    /// <summary>账号管理切换激活账号后：仪表盘完整刷新 + 签到页 + 账号状态同步 + 用量页联动。</summary>
+    /// <summary>账号管理切换激活账号后：签到页 + 账号状态同步 + 顶栏刷新。</summary>
     public static async void NotifyActiveAccountChanged()
     {
         if (Instance is not { } vm) return;
         try
         {
-            await vm._dashboard.RefreshAllAsync();
             vm._checkin.Reload();
-            vm._usage.Reload();
             await vm._settings.RefreshAccountStatesAsync();
             vm.RefreshTopBar();   // 顶栏「当前生效」文案与下拉选中项随之更新
         }
         catch { /* 异步刷新失败不应导致崩溃 */ }
     }
 
-    /// <summary>签到完成后同步仪表盘与账号状态。</summary>
+    /// <summary>签到完成后同步账号状态。</summary>
     public static async Task NotifyAsyncRefresh()
     {
         if (Instance is not { } vm) return;
-        await vm._dashboard.RefreshAllAsync();
         await vm._settings.RefreshAccountStatesAsync();
     }
 
@@ -272,9 +248,6 @@ public partial class MainViewModel : ViewModelBase
 
     /// <summary>由 MainWindow 定时器定时调用：到点自动签到（TraeCheckin「每日自动签到」能力）。</summary>
     public Task<bool> AutoCheckinIfDue() => _checkin.TryAutoCheckinAsync();
-
-    /// <summary>由 MainWindow 定时器定时调用：客户端已退出时静默刷新当前账号的 vault 备份（本次运行只刷一次）。</summary>
-    public Task RefreshSnapshotIfNeeded() => _switch.TryAutoRefreshSnapshotAsync();
 
     /// <summary>托盘「立即签到」：对当前账号执行一次签到（不弹窗，由调用方提示结果）。</summary>
     public async Task<bool> QuickCheckinAsync()
@@ -330,23 +303,19 @@ public partial class MainViewModel : ViewModelBase
     {
         switch (page)
         {
-            case "dashboard":
-                _ = _dashboard.RefreshAllAsync();   // 每次进入仪表盘都按当前激活账号真实验证刷新
-                CurrentPage = _dashboard;
-                CurrentPageKey = "dashboard";
-                break;
             case "checkin":
                 _checkin.Reload();     // 同上，签到页跟随激活账号
                 CurrentPage = _checkin;
                 CurrentPageKey = "checkin";
                 break;
-            case "switch":
-                CurrentPage = _switch;
-                CurrentPageKey = "switch";
-                break;
             case "cloud":
                 CurrentPage = _cloud;
                 CurrentPageKey = "cloud";
+                break;
+            case "qoder":
+                _qoder.Reload();
+                CurrentPage = _qoder;
+                CurrentPageKey = "qoder";
                 break;
             case "settings":
                 _settings.LoadExtendedSettings();   // 每次进入都从配置重读，避免多页面改配置后界面过期
@@ -354,12 +323,6 @@ public partial class MainViewModel : ViewModelBase
                 CurrentPage = _settings;
                 CurrentPageKey = "settings";
                 break;
-            case "usage":
-                    _usage.Reload();        // 先展示本地记录，再后台增量同步近 7 天
-                    _ = _usage.RefreshCommand.ExecuteAsync(null);
-                    CurrentPage = _usage;
-                    CurrentPageKey = "usage";
-                    break;
             case "log":
                 // 进页面时重建「最近」内存缓冲并重扫磁盘文件（日志文件可能被其它进程追加）
                 _log.ReloadRecent();

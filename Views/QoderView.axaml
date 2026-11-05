@@ -1,0 +1,121 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TraeTools.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="TraeTools.Views.QoderView"
+             x:DataType="vm:QoderViewModel">
+
+    <Design.DataContext>
+        <vm:QoderViewModel />
+    </Design.DataContext>
+
+    <ScrollViewer Background="Transparent" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="14" Margin="0,0,14,0">
+
+            <!-- ===== Header ===== -->
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <StackPanel Grid.Column="0" Spacing="4">
+                    <TextBlock Text="Qoder" Classes="page-title" />
+                    <TextBlock Text="设备码授权登录 · 每日活动领取 · 积分查询" Classes="page-subtitle" />
+                </StackPanel>
+                <Button Grid.Column="1" Classes="btn" Content="添加账号" Margin="0,0,8,0"
+                        Command="{Binding AddAccountCommand}" IsEnabled="{Binding !IsBusy}" />
+                <Button Grid.Column="2" Classes="btn-primary" Content="{Binding CheckinButtonText}"
+                        Command="{Binding DoCheckinCommand}" IsEnabled="{Binding !IsBusy}" />
+            </Grid>
+
+            <!-- ===== 登录状态 ===== -->
+            <Border Classes="card">
+                <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="账号登录" Classes="card-title" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1" Width="210" SelectedIndex="{Binding RegionIndex}"
+                                  IsEnabled="{Binding !IsBusy}" VerticalAlignment="Center">
+                            <ComboBoxItem Content="国内版 (qoder.com.cn)" />
+                            <ComboBoxItem Content="国际版 (qoder.com)" />
+                        </ComboBox>
+                    </Grid>
+                    <TextBlock Text="{Binding LoginState}" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextMainBrush}" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding StatusMessage}" FontSize="12"
+                               Foreground="{DynamicResource TextMutedBrush}" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasLoginHint}">
+                        <Button Classes="btn-ghost" Content="重新打开授权页" Command="{Binding ReopenLoginPageCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 账号列表 ===== -->
+            <Border Classes="card">
+                <StackPanel Spacing="10">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Qoder 账号" Classes="card-title" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button Classes="btn-ghost" Content="刷新积分"
+                                    Command="{Binding RefreshCreditsCommand}" IsEnabled="{Binding !IsBusy}" />
+                            <Button Classes="btn-ghost" Content="删除选中"
+                                    Command="{Binding RemoveAccountCommand}" IsEnabled="{Binding !IsBusy}" />
+                        </StackPanel>
+                    </Grid>
+                    <ListBox ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount}"
+                             Background="Transparent" MaxHeight="220">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:QoderAccountRow">
+                                <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,6">
+                                    <Border Grid.Column="0" Width="30" Height="30" CornerRadius="15"
+                                            Background="{DynamicResource AccentBrush}" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Initial}" Foreground="White" FontWeight="Bold"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" Spacing="2">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" />
+                                        <TextBlock Text="{Binding Domain}" FontSize="10"
+                                                   Foreground="{DynamicResource TextSubBrush}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Margin="0,0,14,0" VerticalAlignment="Center" Spacing="2">
+                                        <TextBlock Text="{Binding CreditsText}" FontSize="15" FontWeight="Bold"
+                                                   HorizontalAlignment="Right" />
+                                        <TextBlock Text="积分" FontSize="10" HorizontalAlignment="Right"
+                                                   Foreground="{DynamicResource TextSubBrush}" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="3" Text="{Binding StatusText}" FontSize="11"
+                                               VerticalAlignment="Center" MinWidth="72" TextAlignment="Right"
+                                               Foreground="{DynamicResource TextMutedBrush}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 指标卡 ===== -->
+            <Grid ColumnDefinitions="*,*">
+                <Border Grid.Column="0" Classes="card" Margin="0,0,7,0">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="剩余积分" FontSize="11" Foreground="{DynamicResource TextSubBrush}" />
+                        <TextBlock Text="{Binding CreditsSummary}" Classes="card-value" FontSize="24" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="1" Classes="card" Margin="7,0,0,0">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="套餐" FontSize="11" Foreground="{DynamicResource TextSubBrush}" />
+                        <TextBlock Text="{Binding PlanSummary}" Classes="card-value" FontSize="18" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- ===== 说明 ===== -->
+            <Border Classes="card">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="签到说明" Classes="card-title" />
+                    <TextBlock FontSize="11" Foreground="{DynamicResource TextMutedBrush}" TextWrapping="Wrap"
+                               Text="Qoder 的每日奖励通过活动平台发放（「每日领取 100 Credits」），领取按人计算：同一台机器上的多个账号共享额度，后领的账号会收到「已由同一人领取」。上游判为已领取的账号按成功处理。" />
+                    <TextBlock FontSize="11" Foreground="{DynamicResource TextMutedBrush}" TextWrapping="Wrap"
+                               Text="登录由浏览器完成：点「添加账号」后会在浏览器打开授权页，请在其中选择要登录的 Qoder 账号并确认；本程序只读取授权结果，不接触你的密码。" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -19,12 +19,10 @@ public class ViewLocator : IDataTemplate
 
         return param switch
         {
-            DashboardViewModel => new DashboardView(),
             CheckinViewModel => new CheckinView(),
             CloudViewModel => new CloudView(),
-            UsageViewModel => new UsageView(),
+            QoderViewModel => new QoderView(),
             SettingsViewModel => new SettingsView(),
-            SwitchViewModel => new SwitchView(),
             LogViewModel => new LogView(),
             _ => new TextBlock { Text = "Not Found: " + param.GetType().FullName },
         };
