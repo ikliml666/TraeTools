@@ -39,7 +39,7 @@ public class QoderAccount
     public double Total { get; set; }
     public bool IsExceeded { get; set; }
 
-    /// <summary>套餐名（/api/v2/user/plan 的 planName）。</summary>
+    /// <summary>套餐名（/api/v2/user/plan 的 plan_tier_name，如 "Pro Trial"、"Free"）。</summary>
     public string? Plan { get; set; }
 
     /// <summary>今日已领取的活动文案；null 表示今天还没领到。</summary>
