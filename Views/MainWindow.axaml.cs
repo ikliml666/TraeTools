@@ -49,6 +49,7 @@ public partial class MainWindow : Window
                 if (DataContext is MainViewModel vm)
                 {
                     await vm.AutoCheckinIfDue();
+                    await vm.QoderAutoCheckinIfDue();
                 }
             }
             finally { _tickBusy = false; }

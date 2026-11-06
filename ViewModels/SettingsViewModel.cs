@@ -27,6 +27,12 @@ public partial class SettingsViewModel : ViewModelBase
     private int _checkinIntervalSeconds = 5;
 
     [ObservableProperty]
+    private bool _qoderAutoCheckinEnabled = true;
+
+    [ObservableProperty]
+    private string _qoderAutoCheckinTime = "10:00";
+
+    [ObservableProperty]
     private bool _autoStartEnabled;
 
     [ObservableProperty]
@@ -157,6 +163,8 @@ public partial class SettingsViewModel : ViewModelBase
                 AutoCheckinEnabled = cfg.AutoCheckinEnabled;
                 AutoCheckinTime = cfg.AutoCheckinTime;
                 CheckinIntervalSeconds = Math.Clamp(cfg.CheckinIntervalSeconds > 0 ? cfg.CheckinIntervalSeconds : 5, 1, 60);
+                QoderAutoCheckinEnabled = cfg.QoderAutoCheckinEnabled;
+                QoderAutoCheckinTime = cfg.QoderAutoCheckinTime;
                 MinimizeToTray = cfg.MinimizeToTray;
 
                 var acc = cfg.Accounts.FirstOrDefault(a => a.Id == cfg.ActiveAccountId)
@@ -436,6 +444,8 @@ public partial class SettingsViewModel : ViewModelBase
                 cfg.AutoCheckinEnabled = AutoCheckinEnabled;
                 cfg.AutoCheckinTime = AutoCheckinTime;
                 cfg.CheckinIntervalSeconds = Math.Clamp(CheckinIntervalSeconds, 1, 60);
+                cfg.QoderAutoCheckinEnabled = QoderAutoCheckinEnabled;
+                cfg.QoderAutoCheckinTime = QoderAutoCheckinTime;
                 cfg.FeishuWebhook = FeishuWebhook;
                 cfg.MinimizeToTray = MinimizeToTray;
                 cfg.Save();

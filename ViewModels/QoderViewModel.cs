@@ -367,7 +367,9 @@ public partial class QoderViewModel : ViewModelBase
                         ok++;
                         acc.LastClaimMessage = "今日已领取";
                         acc.LastClaimAt = DateTime.Now;
-                        details.Add($"{name}：今日已领取（{already[0].Title}）");
+                        details.Add(string.IsNullOrEmpty(already[0].Title)
+                            ? $"{name}：今日已领取"
+                            : $"{name}：今日已领取（{already[0].Title}）");
                     }
                     else if (blocked.Count > 0)
                     {
@@ -466,6 +468,31 @@ public partial class QoderViewModel : ViewModelBase
         var plan = await api.FetchPlanAsync(acc);
         if (!string.IsNullOrEmpty(plan)) acc.Plan = plan;
     }
+
+    /// <summary>
+    /// 自动签到检查：到点、启用且当天未触发时，对所有 Qoder 账号执行一次签到。
+    /// 与 Trae 的自动签到彼此独立——两者时间不同，各自的开关也不同。
+    /// </summary>
+    public async Task<bool> TryAutoCheckinAsync()
+    {
+        var cfg = MainViewModel.AppConfig;
+        if (cfg == null || !cfg.QoderAutoCheckinEnabled) return false;
+        if (string.IsNullOrWhiteSpace(cfg.QoderAutoCheckinTime)) return false;
+        if (!TimeSpan.TryParse(cfg.QoderAutoCheckinTime, out var due)) return false;
+        if (DateTime.Now.TimeOfDay < due) return false;
+        if (_lastAutoCheckDate == DateTime.Today) return false;
+        if (_store.Accounts.Count == 0) return false;
+        if (_api == null || IsBusy) return false;   // 服务未就绪或正在手动签到，留到下一轮 tick
+        _lastAutoCheckDate = DateTime.Today;   // 到点即置位，本日不再重复触发
+
+        AccountHelpers.AppLog("qoder", "", $"自动签到开始（计划时间 {cfg.QoderAutoCheckinTime}）");
+        await DoCheckinAsync();
+        AccountHelpers.AppLog("qoder", "", $"自动签到结束：{StatusMessage}");
+        return true;
+    }
+
+    /// <summary>自动签到上次已触发日期（每日仅触发一次）。</summary>
+    private static DateTime _lastAutoCheckDate = DateTime.MinValue;
 
     /// <summary>删除当前选中的账号（只删本地凭据，不影响 Qoder 侧登录态）。</summary>
     [RelayCommand]

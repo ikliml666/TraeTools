@@ -28,6 +28,10 @@ public class AppConfig
     public string DeviceId { get; set; } = GenerateDeviceId();
     public bool AutoCheckinEnabled { get; set; } = true;
     public string AutoCheckinTime { get; set; } = "12:00";
+    /// <summary>Qoder 每日自动签到开关（与 Trae 的自动签到互不影响）。</summary>
+    public bool QoderAutoCheckinEnabled { get; set; } = true;
+    /// <summary>Qoder 每日自动签到时间（HH:mm，本机时区）。</summary>
+    public string QoderAutoCheckinTime { get; set; } = "10:00";
     /// <summary>多账号签到间隔（秒），每个账号签到完成后等待该时长再签到下一个；默认 5 秒。</summary>
     public int CheckinIntervalSeconds { get; set; } = 5;
     public DateTime? LastCheckinDate { get; set; }
@@ -274,6 +278,8 @@ public class AppConfig
             DeviceId = EncryptSecret(DeviceId) ?? DeviceId,
             AutoCheckinEnabled = AutoCheckinEnabled,
             AutoCheckinTime = AutoCheckinTime,
+            QoderAutoCheckinEnabled = QoderAutoCheckinEnabled,
+            QoderAutoCheckinTime = QoderAutoCheckinTime,
             CheckinIntervalSeconds = CheckinIntervalSeconds,
             LastCheckinDate = LastCheckinDate,
             LastRemaining = LastRemaining,
