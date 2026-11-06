@@ -249,6 +249,9 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>由 MainWindow 定时器定时调用：到点自动签到（TraeCheckin「每日自动签到」能力）。</summary>
     public Task<bool> AutoCheckinIfDue() => _checkin.TryAutoCheckinAsync();
 
+    /// <summary>由 MainWindow 定时器定时调用：到点自动执行 Qoder 签到（与 Trae 各自独立）。</summary>
+    public Task<bool> QoderAutoCheckinIfDue() => _qoder.TryAutoCheckinAsync();
+
     /// <summary>托盘「立即签到」：对当前账号执行一次签到（不弹窗，由调用方提示结果）。</summary>
     public async Task<bool> QuickCheckinAsync()
     {

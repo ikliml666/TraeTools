@@ -65,6 +65,20 @@
                             </Grid>
                             <Grid ColumnDefinitions="*,Auto" Margin="0,4">
                                 <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Text="Qoder 每日自动签到" FontSize="13" FontWeight="SemiBold" />
+                                    <TextBlock Text="到达指定时间自动领取 Qoder 活动积分" FontSize="11" Foreground="{DynamicResource TextMutedBrush}" />
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" IsChecked="{Binding QoderAutoCheckinEnabled}" OnContent="" OffContent="" />
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,4">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Text="Qoder 签到时间" FontSize="13" FontWeight="SemiBold" />
+                                    <TextBlock Text="HH:mm，本机时区" FontSize="11" Foreground="{DynamicResource TextMutedBrush}" />
+                                </StackPanel>
+                                <TextBox Grid.Column="1" Text="{Binding QoderAutoCheckinTime}" Width="90" Padding="6,4" HorizontalContentAlignment="Center" />
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,4">
+                                <StackPanel Grid.Column="0" Spacing="2">
                                     <TextBlock Text="开机自启" FontSize="13" FontWeight="SemiBold" />
                                     <TextBlock Text="系统启动时自动运行" FontSize="11" Foreground="{DynamicResource TextMutedBrush}" />
                                 </StackPanel>
