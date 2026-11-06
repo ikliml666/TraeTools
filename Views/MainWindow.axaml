@@ -149,34 +149,14 @@
                     </Button>
                 </Grid>
 
-                <!-- 顶栏：当前账号下拉切换（复用账号切换页的账号集合与冷切换命令） -->
+                <!-- 顶栏：仅显示当前生效账号（切换功能已移除，改在「设置」页管理账号） -->
                 <Border Grid.Row="1" Background="{DynamicResource ContentBgBrush}"
                         BorderBrush="{DynamicResource BorderBrushKey}" BorderThickness="0,0,0,1"
                         Padding="28,12">
-                    <Grid ColumnDefinitions="Auto,260,Auto,*">
-                        <TextBlock Grid.Column="0" Text="当前账号" Classes="page-subtitle"
-                                   VerticalAlignment="Center" Margin="0,0,10,0" />
-                        <ComboBox Grid.Column="1" ItemsSource="{Binding TopAccounts}"
-                                  SelectedItem="{Binding TopSelectedAccount}"
-                                  HorizontalAlignment="Stretch" VerticalAlignment="Center">
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate x:DataType="mdl:AccountInfo">
-                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
-                        <Button Grid.Column="2" Classes="btn" Content="切换" Margin="8,0,0,0"
-                                VerticalAlignment="Center"
-                                IsEnabled="{Binding TopCanSwitch}"
-                                Command="{Binding SwitchToSelectedAccountCommand}" />
-                        <StackPanel Grid.Column="3" Margin="14,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding TopActiveAccountText}" Classes="page-subtitle"
-                                       TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding TopSwitchHint}" Classes="page-subtitle"
-                                       Foreground="{DynamicResource TextMutedBrush}" FontSize="11"
-                                       TextTrimming="CharacterEllipsis" IsVisible="{Binding TopSwitchHint, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                        </StackPanel>
-                    </Grid>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding TopActiveAccountText}" Classes="page-subtitle"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
                 </Border>
 
                 <!-- 页面切换动效：整页交叉淡入淡出（不改布局、无位移抖动） -->

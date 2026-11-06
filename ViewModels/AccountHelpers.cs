@@ -309,26 +309,13 @@ public static class AccountHelpers
 
     // ==================== 通用分类日志（排查问题用） ====================
 
-    /// <summary>日志文件锁（独立于 HistoryIoLock，避免签到高峰争用）。</summary>
-    private static readonly object LogLock = new();
-
     /// <summary>
-    /// 写入一条分类调试日志到 {category}_log_yyyyMM.txt。
-    /// 各模块按 category 归档：checkin / account / cloud / switch / usage。
+    /// 写入一条分类调试日志（checkin / account / cloud / switch / usage）。
+    /// 统一走 <see cref="TraeTools.Services.AppLog"/>：它既落盘也进内存缓冲，
+    /// 日志页的「最近」标签才有内容可读（直接写文件的话只有「全部」能扫到）。
     /// </summary>
     public static void AppLog(string category, string accountName, string message)
-    {
-        try
-        {
-            lock (LogLock)
-            {
-                var logFile = Path.Combine(LogsDir, $"{category}_log_{DateTime.Now:yyyyMM}.txt");
-                var name = string.IsNullOrEmpty(accountName) ? "?" : accountName;
-                File.AppendAllText(logFile, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{name}] {message}{Environment.NewLine}");
-            }
-        }
-        catch { /* 日志写入失败不影响业务 */ }
-    }
+        => TraeTools.Services.AppLog.Info(category, accountName, message);
 
     /// <summary>签到日志快捷方法（兼容已有调用）。</summary>
     public static void CheckinLog(string accountName, string message)
