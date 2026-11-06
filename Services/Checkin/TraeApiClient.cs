@@ -36,9 +36,11 @@ public class TraeApiClient
 
     public string? LastError { get; private set; }
 
-    public TraeApiClient()
+    public TraeApiClient() : this(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }) { }
+
+    internal TraeApiClient(HttpClient http)
     {
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        _http = http;
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("TraeCheckin/1.0");
     }
 

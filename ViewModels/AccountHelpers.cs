@@ -17,10 +17,28 @@ public static class AccountHelpers
             StringComparer.Ordinal);
         // 已有且不与其它账号重复 → 保持不动（幂等）；为空或与别人相同（手工填错）→ 换发独立新号
         if (!string.IsNullOrWhiteSpace(acc.DeviceId) && !used.Contains(acc.DeviceId)) return;
+        acc.DeviceId = NewDeviceId(used);
+    }
+
+    /// <summary>
+    /// 换发一个不与其它账号重复的新设备号（不写入账号，由调用方决定是否采纳）。
+    /// 9074/9095 都是「这个设备号当前用不了」，换号重签比原地退避有效。
+    /// </summary>
+    public static string NewDeviceId()
+    {
+        var used = new System.Collections.Generic.HashSet<string>(
+            MainViewModel.AppConfig?.Accounts.Select(a => a.DeviceId)
+               .Where(d => !string.IsNullOrWhiteSpace(d)) ?? Array.Empty<string>(),
+            StringComparer.Ordinal);
+        return NewDeviceId(used);
+    }
+
+    private static string NewDeviceId(System.Collections.Generic.HashSet<string> used)
+    {
         string id;
         do { id = Random.Shared.NextInt64(1_000_000_000_000_000L, 10_000_000_000_000_000L).ToString(); }
         while (used.Contains(id));
-        acc.DeviceId = id;
+        return id;
     }
 
     /// <summary>
@@ -113,6 +131,19 @@ public static class AccountHelpers
         acc.RefreshExpiresAt = got.RefreshExpiresAt;
         try { cfg.Save(); } catch { /* 忽略 */ }
         CheckinLog(name, $"已取得 refreshToken，有效期至 {got.RefreshExpiresAt:yyyy-MM-dd HH:mm}");
+    }
+
+    /// <summary>
+    /// 执行 claim，9074/9095 时换新设备号重签（策略见 <see cref="CheckinRetry"/>）。
+    /// </summary>
+    public static Task<(CheckinStatus? Result, string FailureReason)> ClaimWithDeviceRetryAsync(
+        TraeAccount acc, TraeApiClient api, string displayName)
+    {
+        EnsureDeviceId(acc);
+        return CheckinRetry.ClaimAsync(
+            api, acc, NewDeviceId,
+            msg => CheckinLog(displayName, msg),
+            () => { try { MainViewModel.AppConfig?.Save(); } catch { /* 忽略 */ } });
     }
 
     /// <summary>

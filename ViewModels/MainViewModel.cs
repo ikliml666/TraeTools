@@ -262,10 +262,10 @@ public partial class MainViewModel : ViewModelBase
             if (acc == null || string.IsNullOrEmpty(acc.Token)) return false;
             var name = string.IsNullOrEmpty(acc.Name) ? (acc.Id.Length > 6 ? acc.Id[..6] : acc.Id) : acc.Name!;
             AccountHelpers.CheckinLog(name, $"[托盘快签] 开始签到，DeviceId={acc.DeviceId}");
-            var result = await api.ClaimAsync(acc.Token, acc.DeviceId);
-            if (result == null || result.code != 0)
+            var (result, claimFailure) = await AccountHelpers.ClaimWithDeviceRetryAsync(acc, api, name);
+            if (result == null)
             {
-                AccountHelpers.CheckinLog(name, $"[托盘快签] Claim 失败：code={result?.code ?? -1}, message={result?.message ?? "null"}");
+                AccountHelpers.CheckinLog(name, $"[托盘快签] Claim 失败：{claimFailure}");
                 return false;
             }
             acc.LastCheckinDate = DateTime.Now;
