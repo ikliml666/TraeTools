@@ -17,10 +17,28 @@ public static class AccountHelpers
             StringComparer.Ordinal);
         // 已有且不与其它账号重复 → 保持不动（幂等）；为空或与别人相同（手工填错）→ 换发独立新号
         if (!string.IsNullOrWhiteSpace(acc.DeviceId) && !used.Contains(acc.DeviceId)) return;
+        acc.DeviceId = NewDeviceId(used);
+    }
+
+    /// <summary>
+    /// 换发一个不与其它账号重复的新设备号（不写入账号，由调用方决定是否采纳）。
+    /// 9074/9095 都是「这个设备号当前用不了」，换号重签比原地退避有效。
+    /// </summary>
+    public static string NewDeviceId()
+    {
+        var used = new System.Collections.Generic.HashSet<string>(
+            MainViewModel.AppConfig?.Accounts.Select(a => a.DeviceId)
+               .Where(d => !string.IsNullOrWhiteSpace(d)) ?? Array.Empty<string>(),
+            StringComparer.Ordinal);
+        return NewDeviceId(used);
+    }
+
+    private static string NewDeviceId(System.Collections.Generic.HashSet<string> used)
+    {
         string id;
         do { id = Random.Shared.NextInt64(1_000_000_000_000_000L, 10_000_000_000_000_000L).ToString(); }
         while (used.Contains(id));
-        acc.DeviceId = id;
+        return id;
     }
 
     /// <summary>
@@ -113,6 +131,19 @@ public static class AccountHelpers
         acc.RefreshExpiresAt = got.RefreshExpiresAt;
         try { cfg.Save(); } catch { /* 忽略 */ }
         CheckinLog(name, $"已取得 refreshToken，有效期至 {got.RefreshExpiresAt:yyyy-MM-dd HH:mm}");
+    }
+
+    /// <summary>
+    /// 执行 claim，9074/9095 时换新设备号重签（策略见 <see cref="CheckinRetry"/>）。
+    /// </summary>
+    public static Task<(CheckinStatus? Result, string FailureReason)> ClaimWithDeviceRetryAsync(
+        TraeAccount acc, TraeApiClient api, string displayName)
+    {
+        EnsureDeviceId(acc);
+        return CheckinRetry.ClaimAsync(
+            api, acc, NewDeviceId,
+            msg => CheckinLog(displayName, msg),
+            () => { try { MainViewModel.AppConfig?.Save(); } catch { /* 忽略 */ } });
     }
 
     /// <summary>
@@ -278,26 +309,13 @@ public static class AccountHelpers
 
     // ==================== 通用分类日志（排查问题用） ====================
 
-    /// <summary>日志文件锁（独立于 HistoryIoLock，避免签到高峰争用）。</summary>
-    private static readonly object LogLock = new();
-
     /// <summary>
-    /// 写入一条分类调试日志到 {category}_log_yyyyMM.txt。
-    /// 各模块按 category 归档：checkin / account / cloud / switch / usage。
+    /// 写入一条分类调试日志（checkin / account / cloud / switch / usage）。
+    /// 统一走 <see cref="TraeTools.Services.AppLog"/>：它既落盘也进内存缓冲，
+    /// 日志页的「最近」标签才有内容可读（直接写文件的话只有「全部」能扫到）。
     /// </summary>
     public static void AppLog(string category, string accountName, string message)
-    {
-        try
-        {
-            lock (LogLock)
-            {
-                var logFile = Path.Combine(LogsDir, $"{category}_log_{DateTime.Now:yyyyMM}.txt");
-                var name = string.IsNullOrEmpty(accountName) ? "?" : accountName;
-                File.AppendAllText(logFile, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{name}] {message}{Environment.NewLine}");
-            }
-        }
-        catch { /* 日志写入失败不影响业务 */ }
-    }
+        => TraeTools.Services.AppLog.Info(category, accountName, message);
 
     /// <summary>签到日志快捷方法（兼容已有调用）。</summary>
     public static void CheckinLog(string accountName, string message)

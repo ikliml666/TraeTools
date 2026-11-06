@@ -454,19 +454,10 @@ public partial class CheckinViewModel : ViewModelBase
             return (0, "会话失效，请重新登录");
         }
 
-        AccountHelpers.CheckinLog(displayName, $"调用 ClaimAsync，DeviceId={acc.DeviceId}");
-        var result = await api.ClaimAsync(acc.Token, acc.DeviceId);
-        if (result == null || result.code != 0)
-        {
-            var code = result?.code ?? -1;
-            var msg = result?.message ?? "null response";
-            var reason = api.LastError;
-            if (string.IsNullOrEmpty(reason))
-                reason = $"签到失败：{msg}（code={code}）";
-            AccountHelpers.CheckinLog(displayName, $"Claim 失败：code={code}, message={msg}, LastError={api.LastError ?? "null"}");
-            return (0, reason);
-        }
-        AccountHelpers.CheckinLog(displayName, $"Claim 成功：code={result.code}, checked_in={result.checked_in}");
+        // 9074 / 9095 都是「这个设备号当前签不了」：9074 是风控拒签，9095 是该设备今天已被签过。
+        // 实测同号连试必败、换一个新号立刻成功，所以换号重签而不是原地退避。
+        var (result, claimFailure) = await AccountHelpers.ClaimWithDeviceRetryAsync(acc, api, displayName);
+        if (result == null) return (0, claimFailure);
 
         // claim 响应不含本次所得积分（源注释明确），签到成功后再查 status 解析（对齐源 CheckinOneAsync）
         double gained = 0;
